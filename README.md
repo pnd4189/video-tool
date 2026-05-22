@@ -110,4 +110,4 @@ Generate tiny local test media:
 scripts/generate-test-media.sh
 ```
 
-The default render profile is `libx264-balanced` for portable YouTube uploads. VAAPI profiles are present as opt-in profile names, but should be benchmarked on the local machine before real use.
+Render profiles: `libx264-balanced` (default) and `libx264-fast`. CPU-only encode — no iGPU/VAAPI dependency.
