@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+import re
+import subprocess
+from pathlib import Path
+
+from videotool.ai.subtitles import validate_srt
+from videotool.core.errors import DependencyError
+from videotool.core.media_probe import probe_media
+from videotool.core.presets import get_preset
+from videotool.package.reports import QualityCheck
+
+ACCEPTED_VIDEO_CODECS = {"h264", "hevc", "av1"}
+ACCEPTED_AUDIO_CODECS = {"aac"}
+YT_LUFS_TARGET = -14.0
+YT_LUFS_TOLERANCE = 1.5  # ±1.5 LU is the practical window before YouTube re-normalizes audibly.
+
+
+def validate_youtube_video(path: Path, preset_name: str) -> list[QualityCheck]:
+    if not path.exists():
+        return [QualityCheck("video_exists", "fail", f"Missing video: {path}")]
+    preset = get_preset(preset_name)
+    metadata = probe_media(path)
+    checks = [QualityCheck("video_exists", "pass", str(path))]
+    checks.append(_check("resolution", metadata.width == preset.width and metadata.height == preset.height, f"{metadata.width}x{metadata.height}"))
+    checks.append(_check("video_codec", metadata.video_codec in ACCEPTED_VIDEO_CODECS, str(metadata.video_codec)))
+    checks.append(_check("audio_codec", metadata.audio_codec in ACCEPTED_AUDIO_CODECS, str(metadata.audio_codec)))
+    checks.append(_check("sample_rate", metadata.sample_rate == 48000, str(metadata.sample_rate)))
+    checks.append(_lufs_check(path))
+    return checks
+
+
+def validate_package(output_dir: Path, expected_videos: list[str] | None = None, require_srt: bool = True) -> list[QualityCheck]:
+    checks: list[QualityCheck] = []
+    expected_videos = expected_videos or ["youtube-16x9.mp4", "shorts-9x16.mp4"]
+    for file_name in expected_videos:
+        preset = file_name.removesuffix(".mp4")
+        checks.extend(validate_youtube_video(output_dir / file_name, preset))
+    srt = output_dir / "captions.srt"
+    srt_errors = validate_srt(srt)
+    status = "fail" if require_srt and srt_errors else "warning" if srt_errors else "pass"
+    checks.append(QualityCheck("captions_srt", status, "; ".join(srt_errors) if srt_errors else str(srt)))
+    checks.append(_check("license_report", (output_dir / "license-report.md").exists(), "license-report.md"))
+    checks.append(_check("description", (output_dir / "description.txt").exists(), "description.txt"))
+    checks.append(_check("quality_report", (output_dir / "quality-report.json").exists(), "quality-report.json"))
+    checks.append(_check("package_manifest", (output_dir / "package-manifest.json").exists(), "package-manifest.json"))
+    checks.append(_check("thumbnail", (output_dir / "thumbnail-1280x720.jpg").exists(), "thumbnail-1280x720.jpg"))
+    log_dir = output_dir.parent / ".videotool" / "tmp" / "logs"
+    checks.append(_check("render_log", any(log_dir.glob("*.log")) if log_dir.exists() else False, str(log_dir)))
+    return checks
+
+
+def measure_integrated_lufs(path: Path) -> float | None:
+    """Run ffmpeg ebur128 once and return integrated LUFS, or None if measurement failed."""
+    command = [
+        "ffmpeg", "-nostats", "-hide_banner",
+        "-i", str(path),
+        "-af", "ebur128=peak=true",
+        "-f", "null", "-",
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=600)
+    except FileNotFoundError as exc:
+        raise DependencyError("ffmpeg was not found. Install FFmpeg 6.1+ and retry.") from exc
+    except subprocess.TimeoutExpired:
+        return None
+    match = re.search(r"I:\s*(-?\d+\.\d+)\s*LUFS", result.stderr)
+    if not match:
+        return None
+    return float(match.group(1))
+
+
+def _lufs_check(path: Path) -> QualityCheck:
+    try:
+        measured = measure_integrated_lufs(path)
+    except DependencyError as exc:
+        return QualityCheck("loudness_lufs", "fail", str(exc))
+    if measured is None:
+        return QualityCheck("loudness_lufs", "warning", "could not measure integrated LUFS")
+    delta = abs(measured - YT_LUFS_TARGET)
+    status = "pass" if delta <= YT_LUFS_TOLERANCE else "warning"
+    return QualityCheck("loudness_lufs", status, f"{measured:.2f} LUFS (target {YT_LUFS_TARGET:+.1f} ±{YT_LUFS_TOLERANCE})")
+
+
+def write_description(
+    title: str,
+    license_report: Path,
+    output_path: Path,
+    description: str = "",
+    chapters: list[tuple[float, str]] | None = None,
+    tags: list[str] | None = None,
+    cta: str = "",
+) -> None:
+    parts: list[str] = [title.strip()]
+    if description:
+        parts.append("")
+        parts.append(description.strip())
+    if chapters:
+        parts.append("")
+        parts.append("Chapters:")
+        for start, chapter_title in chapters:
+            parts.append(f"{_format_chapter_timestamp(start)} {chapter_title}")
+    if cta:
+        parts.append("")
+        parts.append(cta.strip())
+    parts.append("")
+    parts.append(f"Credits and license metadata: see {license_report.name}.")
+    if tags:
+        parts.append("")
+        parts.append(" ".join(f"#{tag.lstrip('#')}" for tag in tags))
+    output_path.write_text("\n".join(parts) + "\n", encoding="utf-8")
+
+
+def _format_chapter_timestamp(seconds: float) -> str:
+    total = max(0, int(round(seconds)))
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _check(name: str, passed: bool, message: str) -> QualityCheck:
+    return QualityCheck(name, "pass" if passed else "fail", message)

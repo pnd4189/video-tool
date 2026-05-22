@@ -1,0 +1,18 @@
+version: 1
+project:
+  title: sample-video
+  language: vi
+inputs:
+  voice: voice.wav
+  media_dir: media
+  music: music/background.mp3
+outputs:
+  - preset: youtube-16x9
+  - preset: shorts-9x16
+captions:
+  mode: srt-only
+assets:
+  policy: licensed-only
+render:
+  encoder: libx264-balanced
+  temp_dir: .videotool/tmp

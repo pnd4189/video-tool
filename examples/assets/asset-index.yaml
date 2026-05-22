@@ -1,0 +1,13 @@
+assets:
+  - id: broll-city-001
+    path: broll/city.mp4
+    type: video
+    tags: [city, night]
+    source_url: https://example.com/source
+    author: creator name
+    license: pexels
+    commercial_ok: true
+    attribution_required: false
+    attribution_text: ""
+    content_id_risk: low
+    imported_at: "2026-05-19"
