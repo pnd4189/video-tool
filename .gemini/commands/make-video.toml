@@ -1,0 +1,27 @@
+description = "Build an audio-story YouTube video end-to-end from an asset folder. Reads AGENTS.md for workflow + pitfalls + confirmed decisions."
+argument-hint = "<folder> [optional hints: title, music file, presets, language]"
+
+prompt = """\
+Read `./AGENTS.md` first — it contains the workflow, pitfalls, and confirmed decisions for this project. Treat its "Confirmed project decisions" as locked unless the user explicitly asks to change one.
+
+Then execute the standard 4-step pipeline against the user's input:
+
+$ARGUMENTS
+
+## Execution rules
+
+1. Inspect the asset folder. Identify the voice file, image files, optional video clips (.mp4/.mov), and music file. Use absolute paths.
+2. Run `init-job`, then patch `job.yaml` to set `assets.policy: allow-missing-local` and `captions.mode: off` (init-job defaults are wrong for our flow — see AGENTS.md Known Pitfalls #1 and #3).
+3. Run `storyboard auto` for images. If the folder also contains video clips, append them manually to the storyboard list in `job.yaml` (autogen skips videos — Pitfall #2).
+4. `validate` → `render --all` → `package`.
+5. Report the output mp4 paths, thumbnail path, and a one-line summary (durations, scene count, preset list). Quote any `ffprobe` codec check.
+
+## When to pause
+
+Only ask ONE concise question, and only if essential:
+- No voice file detectable in the folder
+- Multiple candidate voice/music files and the hint doesn't disambiguate
+- Folder has zero images AND zero video clips (nothing to render)
+
+Otherwise run silently end-to-end and report at the end.
+"""

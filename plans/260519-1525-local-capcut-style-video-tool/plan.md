@@ -6,7 +6,7 @@ priority: P1
 effort: "12-18d"
 branch: "main"
 tags: [feature, cli, gui, media, ffmpeg, ai, youtube]
-blockedBy: []
+blockedBy: [260527-1700-videotool-feature-expansion, 260527-1635-audio-story-autopublisher-mvp]
 blocks: []
 created: "2026-05-19T08:25:57.768Z"
 createdBy: "ck:plan"
