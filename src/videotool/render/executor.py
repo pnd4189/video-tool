@@ -8,6 +8,7 @@ from pathlib import Path
 
 from videotool.core.errors import DependencyError, RenderError
 from videotool.render.commands import CommandPlan
+from videotool.render.segmented import SegmentedPlan
 
 DEFAULT_TIMEOUT_SECONDS = 60 * 60 * 6  # 6h ceiling per render; tune if you ever do longer videos.
 
@@ -26,11 +27,32 @@ class RenderExecutor:
 
     def run(self, plan: CommandPlan, log_path: Path) -> RenderResult:
         plan.output_path.parent.mkdir(parents=True, exist_ok=True)
+        elapsed = self._run(plan.command, log_path, plan.preset)
+        return RenderResult(plan.output_path, plan.preset, elapsed, log_path)
+
+    def run_segmented(self, plan: SegmentedPlan, logs_dir: Path) -> RenderResult:
+        """Render each scene clip (skipping clips already on disk), join via the
+        concat demuxer, and mux audio. Resumable: a crash mid-run resumes from the
+        first missing clip instead of restarting from scene 1."""
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        started = time.monotonic()
+        for index, scene in enumerate(plan.scene_commands):
+            if _is_complete(scene.output_path):
+                continue
+            scene.output_path.parent.mkdir(parents=True, exist_ok=True)
+            self._run(scene.command, logs_dir / f"{plan.preset}-scene-{index:04}.log", plan.preset)
+        plan.concat_list_path.parent.mkdir(parents=True, exist_ok=True)
+        plan.concat_list_path.write_text(plan.concat_list_text, encoding="utf-8")
+        plan.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self._run(plan.mux_command, logs_dir / f"{plan.preset}-mux.log", plan.preset)
+        return RenderResult(plan.output_path, plan.preset, time.monotonic() - started, logs_dir)
+
+    def _run(self, command: list[str], log_path: Path, preset: str) -> float:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         started = time.monotonic()
         try:
             process = subprocess.Popen(
-                plan.command,
+                command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -40,7 +62,7 @@ class RenderExecutor:
             raise DependencyError("ffmpeg was not found. Install FFmpeg 6.1+ and retry.") from exc
 
         with log_path.open("w", encoding="utf-8") as log_file:
-            log_file.write("$ " + " ".join(plan.command) + "\n\n")
+            log_file.write("$ " + " ".join(command) + "\n\n")
             try:
                 # Stream lines to disk so multi-GB renders don't buffer in memory.
                 assert process.stdout is not None
@@ -54,7 +76,7 @@ class RenderExecutor:
                 except subprocess.TimeoutExpired:
                     process.kill()
                 raise RenderError(
-                    f"FFmpeg timed out after {self.timeout_seconds}s for {plan.preset}. See log: {log_path}"
+                    f"FFmpeg timed out after {self.timeout_seconds}s for {preset}. See log: {log_path}"
                 ) from None
             except KeyboardInterrupt:
                 process.send_signal(signal.SIGTERM)
@@ -65,5 +87,9 @@ class RenderExecutor:
                 raise
 
         if return_code != 0:
-            raise RenderError(f"FFmpeg failed for {plan.preset} (exit {return_code}). See log: {log_path}")
-        return RenderResult(plan.output_path, plan.preset, time.monotonic() - started, log_path)
+            raise RenderError(f"FFmpeg failed for {preset} (exit {return_code}). See log: {log_path}")
+        return time.monotonic() - started
+
+
+def _is_complete(clip_path: Path) -> bool:
+    return clip_path.exists() and clip_path.stat().st_size > 0

@@ -34,6 +34,12 @@ class InputSpec(BaseModel):
     voice: Path
     media_dir: Path = Path("media")
     music: Path | None = None
+    # Polished prose script; when set, subtitles use its wording with whisper timing.
+    script: Path | None = None
+    # Optional thumbnail-template shown over the first seconds of the voice (no added time).
+    intro_image: Path | None = None
+    # Optional ending image appended as an extra outro after the voice ends.
+    ending_image: Path | None = None
 
 
 class OutputSpec(BaseModel):
@@ -65,9 +71,21 @@ class StoryboardSceneSpec(BaseModel):
         "pan-up",
         "pan-down",
         "ken-burns",
+        "static",
     ] = "slow-push"
     transition: Literal["cut", "fade", "crossfade", "dip-to-black"] = "crossfade"
     caption: str = ""
+
+
+class AudioSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    voice_gain_db: float = 0.0
+    # Low enough that a gentle music bed never competes with narration on audio-story videos.
+    music_gain_db: float = -28.0
+    duck: bool = True
+    # When None, the final loudnorm pass is dropped and dB gains become absolute.
+    normalize_lufs: float | None = -14.0
 
 
 class CaptionSpec(BaseModel):
@@ -88,6 +106,9 @@ class RenderSpec(BaseModel):
     encoder: str = "libx264-balanced"
     temp_dir: Path = Path(".videotool/tmp")
     seed: int = 1
+    # Above this scene count, render via the resumable segmented path (clip-per-scene
+    # + concat) instead of one giant filtergraph. Tune per job for RAM/length trade-offs.
+    max_inline_scenes: int = Field(default=40, gt=0)
 
 
 class PackageSpec(BaseModel):
@@ -108,6 +129,7 @@ class JobSpec(BaseModel):
     inputs: InputSpec
     outputs: list[OutputSpec] = Field(default_factory=lambda: [OutputSpec(preset="youtube-16x9")])
     storyboard: list[StoryboardSceneSpec] = Field(default_factory=list)
+    audio: AudioSpec = Field(default_factory=AudioSpec)
     captions: CaptionSpec = Field(default_factory=CaptionSpec)
     assets: AssetPolicySpec = Field(default_factory=AssetPolicySpec)
     render: RenderSpec = Field(default_factory=RenderSpec)
@@ -139,7 +161,7 @@ def write_job_template(path: Path, title: str, voice: str, media_dir: str, music
         "version": 1,
         "project": {"title": title, "language": "vi"},
         "inputs": {"voice": voice, "media_dir": media_dir},
-        "outputs": [{"preset": "youtube-16x9"}, {"preset": "shorts-9x16"}],
+        "outputs": [{"preset": "youtube-16x9"}],
         "captions": {"mode": "srt-only"},
         "assets": {"policy": "licensed-only"},
         "render": {"encoder": "libx264-balanced", "temp_dir": ".videotool/tmp"},

@@ -15,6 +15,43 @@ def test_ffmpeg_command_uses_argument_list() -> None:
     assert plan.output_path.name == "youtube-16x9.mp4"
 
 
+def test_static_motion_letterboxes_and_pads_voice_for_outro(tmp_path: Path) -> None:
+    job_path = tmp_path / "job.yaml"
+    (tmp_path / "media").mkdir()
+    (tmp_path / "media" / "scene-001.png").write_bytes(b"fake")
+    (tmp_path / "media" / "end.png").write_bytes(b"fake")
+    job_path.write_text(
+        """
+version: 1
+project:
+  title: static-outro
+inputs:
+  voice: voice.wav
+  media_dir: media
+outputs:
+  - preset: youtube-16x9
+storyboard:
+  - scene: 1
+    image: media/scene-001.png
+    duration: 10.0
+    motion: slow-push
+  - scene: 2
+    image: media/end.png
+    duration: 10.0
+    motion: static
+assets:
+  policy: allow-missing-local
+""",
+        encoding="utf-8",
+    )
+    # Voice is 10s but scenes total 20s -> outro extends the video, voice must pad +10s.
+    timeline = compile_timeline(load_job(job_path), job_path, duration=10.0)
+    command = " ".join(build_ffmpeg_command(timeline, get_profile("libx264-fast"), timeline.outputs[0]).command)
+    # Static scene letterboxes (pad) rather than cropping, and carries no zoompan of its own.
+    assert "pad=1920:1080" in command
+    assert "apad=pad_dur=10" in command
+
+
 def test_storyboard_ffmpeg_command_uses_zoompan_and_xfade(tmp_path: Path) -> None:
     job_path = tmp_path / "job.yaml"
     (tmp_path / "media").mkdir()

@@ -11,6 +11,12 @@ def validate_job_paths(job: JobSpec, job_path: Path, require_existing: bool = Tr
     candidates = [root / job.inputs.voice, root / job.inputs.media_dir]
     if job.inputs.music:
         candidates.append(root / job.inputs.music)
+    if job.inputs.script:
+        candidates.append(root / job.inputs.script)
+    if job.inputs.intro_image:
+        candidates.append(root / job.inputs.intro_image)
+    if job.inputs.ending_image:
+        candidates.append(root / job.inputs.ending_image)
     candidates.extend(root / scene.image for scene in job.storyboard)
     candidates.append(root / job.render.temp_dir)
     for candidate in candidates:

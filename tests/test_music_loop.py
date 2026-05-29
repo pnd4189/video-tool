@@ -35,7 +35,7 @@ def test_trim_when_music_longer_than_target(tmp_path: Path) -> None:
     music = tmp_path / "music.flac"
     _synth_tone(music, duration=10.0)
 
-    output = prepare_seamless_music(music, target_duration=4.0, workspace_root=tmp_path / "ws")
+    output = prepare_seamless_music([music], target_duration=4.0, workspace_root=tmp_path / "ws")
 
     assert output.exists()
     meta = probe_media(output)
@@ -47,7 +47,21 @@ def test_loop_when_music_shorter_than_target(tmp_path: Path) -> None:
     music = tmp_path / "music.flac"
     _synth_tone(music, duration=2.0)
 
-    output = prepare_seamless_music(music, target_duration=7.0, workspace_root=tmp_path / "ws")
+    output = prepare_seamless_music([music], target_duration=7.0, workspace_root=tmp_path / "ws")
+
+    assert output.exists()
+    meta = probe_media(output)
+    assert meta.duration is not None
+    assert abs(meta.duration - 7.0) < 0.3
+
+
+def test_multiple_tracks_concatenated_then_looped(tmp_path: Path) -> None:
+    track_a = tmp_path / "01-a.flac"
+    track_b = tmp_path / "02-b.flac"
+    _synth_tone(track_a, duration=2.0, frequency=440)
+    _synth_tone(track_b, duration=2.0, frequency=660)
+
+    output = prepare_seamless_music([track_a, track_b], target_duration=7.0, workspace_root=tmp_path / "ws")
 
     assert output.exists()
     meta = probe_media(output)
@@ -59,12 +73,12 @@ def test_rejects_non_positive_target(tmp_path: Path) -> None:
     music = tmp_path / "music.flac"
     _synth_tone(music, duration=2.0)
     with pytest.raises(RenderError, match="target_duration must be positive"):
-        prepare_seamless_music(music, target_duration=0.0, workspace_root=tmp_path / "ws")
+        prepare_seamless_music([music], target_duration=0.0, workspace_root=tmp_path / "ws")
 
 
 def test_rejects_when_loop_count_exceeds_cap(tmp_path: Path) -> None:
     music = tmp_path / "music.flac"
     _synth_tone(music, duration=1.0)
     huge_target = float(MAX_PLAYS * 2)
-    with pytest.raises(RenderError, match="Music track too short"):
-        prepare_seamless_music(music, target_duration=huge_target, workspace_root=tmp_path / "ws")
+    with pytest.raises(RenderError, match="Music tracks too short"):
+        prepare_seamless_music([music], target_duration=huge_target, workspace_root=tmp_path / "ws")

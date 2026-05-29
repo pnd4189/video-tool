@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import subprocess
 from pathlib import Path
 
@@ -16,49 +15,75 @@ SUBPROCESS_TIMEOUT_SECONDS = 1800
 
 
 def prepare_seamless_music(
-    music_path: Path,
+    music_paths: list[Path],
     target_duration: float,
     workspace_root: Path,
     crossfade_seconds: float = DEFAULT_CROSSFADE_SECONDS,
 ) -> Path:
-    """Pre-render a music track to exactly `target_duration` seconds with crossfaded
-    seams between loop iterations and a fade-out tail. Returns the path of the
-    prepared FLAC inside `workspace_root`.
+    """Pre-render a music bed to exactly `target_duration` seconds with crossfaded seams and
+    a fade-out tail. Returns the path of the prepared FLAC inside `workspace_root`.
 
-    The output replaces the original music input in the main render. Because the
-    file already covers the full video length, the main render's `-stream_loop -1`
-    on the music input never triggers a loop (the output ends first), so the
-    audible seam from raw repetition is eliminated.
+    `music_paths` are played back-to-back in the given order; the sequence repeats (loops
+    from the first track) until it covers `target_duration`. Heterogeneous sample rates /
+    channel layouts are normalized before crossfading. The output replaces the original music
+    input in the main render — because it already covers the full video length, the render's
+    `-stream_loop -1` never triggers, eliminating the audible seam from raw repetition.
     """
     if target_duration <= 0:
         raise RenderError(
             f"prepare_seamless_music: target_duration must be positive, got {target_duration}"
         )
-    music_meta = probe_media(music_path)
-    music_duration = music_meta.duration or 0.0
-    if music_duration <= 0:
-        raise RenderError(f"prepare_seamless_music: could not probe duration: {music_path}")
+    if not music_paths:
+        raise RenderError("prepare_seamless_music: no music tracks provided")
+
+    durations: list[float] = []
+    for path in music_paths:
+        duration = probe_media(path).duration or 0.0
+        if duration <= 0:
+            raise RenderError(f"prepare_seamless_music: could not probe duration: {path}")
+        durations.append(duration)
 
     workspace_root.mkdir(parents=True, exist_ok=True)
     output = workspace_root / "music-loop.flac"
 
-    if music_duration >= target_duration:
-        command = _build_trim_command(music_path, output, target_duration, crossfade_seconds)
+    if len(music_paths) == 1 and durations[0] >= target_duration:
+        command = _build_trim_command(music_paths[0], output, target_duration, crossfade_seconds)
     else:
-        # Keep crossfade short relative to a single play so the music does not feel like
-        # it is fading in/out at every seam.
-        crossfade = min(crossfade_seconds, music_duration / 4)
-        plays = math.ceil((target_duration - crossfade) / (music_duration - crossfade))
-        plays = max(2, plays)
-        if plays > MAX_PLAYS:
+        # Keep crossfade short relative to the shortest track so seams do not feel like a
+        # fade in/out at every join.
+        crossfade = min(crossfade_seconds, min(durations) / 4)
+        sequence = _build_sequence(music_paths, durations, target_duration, crossfade)
+        if len(sequence) > MAX_PLAYS:
             raise RenderError(
-                f"Music track too short ({music_duration:.1f}s) for target {target_duration:.1f}s. "
-                f"Would need {plays} loops (cap {MAX_PLAYS}). Use a longer music track."
+                f"Music tracks too short for target {target_duration:.1f}s. Would need "
+                f"{len(sequence)} segments (cap {MAX_PLAYS}). Use longer music tracks."
             )
-        command = _build_loop_command(music_path, output, target_duration, crossfade, plays)
+        command = _build_loop_command(sequence, output, target_duration, crossfade)
 
     _run(command)
     return output
+
+
+def _build_sequence(
+    music_paths: list[Path], durations: list[float], target: float, crossfade: float
+) -> list[Path]:
+    """Cycle the tracks in order until their crossfaded length covers `target`.
+
+    The first segment contributes its full duration; each subsequent segment adds its
+    duration minus one crossfade (the overlap). Always emits at least two segments so the
+    loop command's acrossfade chain has something to join.
+    """
+    sequence: list[Path] = [music_paths[0]]
+    covered = durations[0]
+    index = 1
+    while covered < target or len(sequence) < 2:
+        track = index % len(music_paths)
+        sequence.append(music_paths[track])
+        covered += durations[track] - crossfade
+        index += 1
+        if len(sequence) > MAX_PLAYS:
+            break
+    return sequence
 
 
 def _build_trim_command(music_path: Path, output: Path, target: float, crossfade: float) -> list[str]:
@@ -73,23 +98,27 @@ def _build_trim_command(music_path: Path, output: Path, target: float, crossfade
     ]
 
 
-def _build_loop_command(music_path: Path, output: Path, target: float, crossfade: float, plays: int) -> list[str]:
+def _build_loop_command(sequence: list[Path], output: Path, target: float, crossfade: float) -> list[str]:
     inputs: list[str] = []
-    for _ in range(plays):
-        inputs.extend(["-i", str(music_path)])
+    for path in sequence:
+        inputs.extend(["-i", str(path)])
 
     filter_parts: list[str] = []
-    current = "0:a"
-    for i in range(1, plays):
-        label = f"x{i}" if i < plays - 1 else "joined"
+    # Normalize each segment so acrossfade can join tracks with differing rates/layouts.
+    for i in range(len(sequence)):
+        filter_parts.append(f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo[a{i}]")
+
+    current = "a0"
+    for i in range(1, len(sequence)):
+        label = f"x{i}" if i < len(sequence) - 1 else "joined"
         filter_parts.append(
-            f"[{current}][{i}:a]acrossfade=d={crossfade:.3f}:curve1=tri:curve2=tri[{label}]"
+            f"[{current}][a{i}]acrossfade=d={crossfade:.3f}:curve1=tri:curve2=tri[{label}]"
         )
         current = label
 
     fade_start = max(0.0, target - crossfade)
     filter_parts.append(
-        f"[joined]atrim=duration={target:.3f},"
+        f"[{current}]atrim=duration={target:.3f},"
         f"afade=t=out:st={fade_start:.3f}:d={crossfade:.3f}[out]"
     )
 

@@ -4,10 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from videotool.core.timeline import Timeline, TimelineOutput, TimelineScene
+from videotool.render.audio_graph import audio_settings, build_audio_graph
 from videotool.render.profiles import RenderProfile
-
-LOUDNORM_TARGET = "loudnorm=I=-14:TP=-1:LRA=11"
-SIDECHAIN_PARAMS = "threshold=0.05:ratio=8:attack=5:release=400:makeup=2"
+from videotool.render.video_filters import codec_args, is_image, metadata_args, scene_filter
 
 
 @dataclass(frozen=True)
@@ -47,19 +46,14 @@ def build_ffmpeg_command(timeline: Timeline, profile: RenderProfile, output: Tim
         video_filter = f"{video_filter},{caption_filter}"
     command.extend(["-vf", video_filter])
     if timeline.music_path:
-        # voice index = 1, music index = 2. Sidechain compress ducks music using voice as key.
-        # asplit duplicates the voice stream so we can both mix and use it as the sidechain key.
-        audio_graph = (
-            "[1:a]asplit=2[voice][voicekey];"
-            f"[2:a]volume=0.5[musicpre];"
-            f"[musicpre][voicekey]sidechaincompress={SIDECHAIN_PARAMS}[ducked];"
-            f"[voice][ducked]amix=inputs=2:duration=first:normalize=0,{LOUDNORM_TARGET}[aout]"
-        )
+        # voice index = 1, music index = 2.
+        audio_graph = build_audio_graph("1:a", "2:a", **audio_settings(timeline))
         command.extend(["-filter_complex", audio_graph, "-map", "0:v:0", "-map", "[aout]"])
     else:
-        command.extend(["-map", "0:v:0", "-map", "1:a:0", "-af", LOUDNORM_TARGET])
-    command.extend(_codec_args(profile))
-    command.extend(_metadata_args(timeline))
+        af = build_audio_graph("1:a", None, **audio_settings(timeline))
+        command.extend(["-map", "0:v:0", "-map", "1:a:0", "-af", af])
+    command.extend(codec_args(profile))
+    command.extend(metadata_args(timeline))
     command.extend(["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart"])
     command.extend(duration_args)
     command.append(str(output.output_path))
@@ -69,7 +63,7 @@ def build_ffmpeg_command(timeline: Timeline, profile: RenderProfile, output: Tim
 def _build_storyboard_command(timeline: Timeline, profile: RenderProfile, output: TimelineOutput) -> CommandPlan:
     command = ["ffmpeg", "-y"]
     for scene in timeline.scenes:
-        if _is_image(scene.media_path):
+        if is_image(scene.media_path):
             command.extend(["-loop", "1", "-t", f"{scene.duration:.3f}", "-i", str(scene.media_path)])
         else:
             command.extend(["-stream_loop", "-1", "-t", f"{scene.duration:.3f}", "-i", str(scene.media_path)])
@@ -85,7 +79,7 @@ def _build_storyboard_command(timeline: Timeline, profile: RenderProfile, output
     for index, scene in enumerate(timeline.scenes):
         label = f"v{index}"
         scene_labels.append(label)
-        filters.append(_scene_filter(index, scene, output, label))
+        filters.append(scene_filter(index, scene, output, label))
     video_label = _join_scene_filters(filters, scene_labels, timeline.scenes)
     caption_filter = _caption_filter(timeline, output)
     if caption_filter:
@@ -93,19 +87,17 @@ def _build_storyboard_command(timeline: Timeline, profile: RenderProfile, output
         video_label = "vcaption"
     if timeline.music_path:
         filters.append(
-            f"[{voice_index}:a]asplit=2[voice][voicekey];"
-            f"[{music_index}:a]volume=0.5[musicpre];"
-            f"[musicpre][voicekey]sidechaincompress={SIDECHAIN_PARAMS}[ducked];"
-            f"[voice][ducked]amix=inputs=2:duration=first:normalize=0,{LOUDNORM_TARGET}[aout]"
+            build_audio_graph(f"{voice_index}:a", f"{music_index}:a", **audio_settings(timeline))
         )
     command.extend(["-filter_complex", ";".join(filters), "-map", f"[{video_label}]"])
     if timeline.music_path:
         command.extend(["-map", "[aout]"])
     else:
-        command.extend(["-map", f"{voice_index}:a:0", "-af", LOUDNORM_TARGET])
+        af = build_audio_graph(f"{voice_index}:a", None, **audio_settings(timeline))
+        command.extend(["-map", f"{voice_index}:a:0", "-af", af])
 
-    command.extend(_codec_args(profile))
-    command.extend(_metadata_args(timeline))
+    command.extend(codec_args(profile))
+    command.extend(metadata_args(timeline))
     command.extend([
         "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
         "-movflags", "+faststart",
@@ -117,28 +109,6 @@ def _build_storyboard_command(timeline: Timeline, profile: RenderProfile, output
     return CommandPlan(command=command, output_path=output.output_path, preset=output.preset.name)
 
 
-def _codec_args(profile: RenderProfile) -> list[str]:
-    args = ["-c:v", profile.encoder]
-    if profile.preset:
-        args.extend(["-preset", profile.preset])
-    if profile.crf is not None:
-        args.extend(["-crf", str(profile.crf)])
-    args.extend(["-pix_fmt", "yuv420p"])
-    return args
-
-
-def _metadata_args(timeline: Timeline) -> list[str]:
-    args: list[str] = []
-    if timeline.title:
-        args.extend(["-metadata", f"title={timeline.title}"])
-    if timeline.description:
-        args.extend(["-metadata", f"description={timeline.description}"])
-        args.extend(["-metadata", f"comment={timeline.description}"])
-    if timeline.author:
-        args.extend(["-metadata", f"artist={timeline.author}"])
-    return args
-
-
 def _reject_unsupported_profile(profile: RenderProfile) -> None:
     if not profile.encoder.startswith("libx264"):
         # VAAPI/AV1/HEVC profiles need -vaapi_device, -hwaccel and hwupload filter chain
@@ -147,26 +117,6 @@ def _reject_unsupported_profile(profile: RenderProfile) -> None:
             f"Encoder '{profile.encoder}' is not wired in this build. "
             "Use 'libx264-balanced' or 'libx264-fast'."
         )
-
-
-def _scene_filter(index: int, scene: TimelineScene, output: TimelineOutput, label: str) -> str:
-    width = output.preset.width
-    height = output.preset.height
-    fps = output.preset.fps
-    if _is_image(scene.media_path):
-        frames = max(1, int(scene.duration * fps))
-        zoom, x_position, y_position = _motion_expr(scene.motion, frames)
-        return (
-            f"[{index}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},"
-            f"zoompan=z='{zoom}':x='{x_position}':y='{y_position}':d={frames}:s={width}x{height}:fps={fps},"
-            f"trim=duration={scene.duration:.3f},setpts=PTS-STARTPTS,format=yuv420p[{label}]"
-        )
-    return (
-        f"[{index}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height},setsar=1,fps={fps},"
-        f"trim=duration={scene.duration:.3f},setpts=PTS-STARTPTS,format=yuv420p[{label}]"
-    )
 
 
 def _join_scene_filters(filters: list[str], labels: list[str], scenes: list[TimelineScene]) -> str:
@@ -192,22 +142,6 @@ def _join_scene_filters(filters: list[str], labels: list[str], scenes: list[Time
         current = output_label
     filters.append(f"[{current}]format=yuv420p[vout]")
     return "vout"
-
-
-def _motion_expr(motion: str, frames: int) -> tuple[str, str, str]:
-    center_x = "iw/2-(iw/zoom/2)"
-    center_y = "ih/2-(ih/zoom/2)"
-    if motion == "zoom-out":
-        return f"max(1.0,1.12-0.12*on/{frames})", center_x, center_y
-    if motion == "pan-left":
-        return "1.12", f"(iw-iw/zoom)*(1-on/{frames})", center_y
-    if motion == "pan-right":
-        return "1.12", f"(iw-iw/zoom)*on/{frames}", center_y
-    if motion == "pan-up":
-        return "1.12", center_x, f"(ih-ih/zoom)*(1-on/{frames})"
-    if motion == "pan-down":
-        return "1.12", center_x, f"(ih-ih/zoom)*on/{frames}"
-    return f"min(1.12,1.0+0.12*on/{frames})", center_x, center_y
 
 
 def _xfade_name(transition: str) -> str:
@@ -244,7 +178,3 @@ def _escape_filter_value(path: Path) -> str:
     for ch in (":", ",", "'", "[", "]", ";"):
         text = text.replace(ch, "\\" + ch)
     return text
-
-
-def _is_image(path: Path) -> bool:
-    return path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}

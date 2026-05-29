@@ -38,6 +38,13 @@ class Timeline:
     author: str = ""
     subtitle_path: Path | None = None
     chapters: list[tuple[float, str]] = field(default_factory=list)
+    voice_gain_db: float = 0.0
+    music_gain_db: float = -28.0
+    duck: bool = True
+    normalize_lufs: float | None = -14.0
+    # Silence appended to the voice so it spans the full video when scenes (e.g. an ending
+    # image) extend past the narration. Keeps `-shortest` from truncating the outro.
+    voice_pad_seconds: float = 0.0
 
 
 def compile_timeline(job: JobSpec, job_path: Path, duration: float | None = None) -> Timeline:
@@ -61,6 +68,8 @@ def compile_timeline(job: JobSpec, job_path: Path, duration: float | None = None
         for scene in job.storyboard
     ]
     chapters = [(chapter.start, chapter.title) for chapter in job.project.chapters]
+    scenes_total = sum(scene.duration for scene in scenes)
+    voice_pad_seconds = max(0.0, scenes_total - duration) if duration else 0.0
     return Timeline(
         title=job.project.title,
         root=root,
@@ -74,4 +83,9 @@ def compile_timeline(job: JobSpec, job_path: Path, duration: float | None = None
         description=job.project.description,
         author=job.project.author,
         chapters=chapters,
+        voice_gain_db=job.audio.voice_gain_db,
+        music_gain_db=job.audio.music_gain_db,
+        duck=job.audio.duck,
+        normalize_lufs=job.audio.normalize_lufs,
+        voice_pad_seconds=voice_pad_seconds,
     )

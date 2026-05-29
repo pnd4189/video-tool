@@ -5,6 +5,7 @@ import shutil
 from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
 
+from videotool.ai.align_script import align_script_to_transcript, parse_script
 from videotool.ai.faster_whisper_adapter import FasterWhisperTranscriber
 from videotool.ai.silence import detect_silence, write_cut_suggestions
 from videotool.ai.subtitles import write_srt
@@ -14,6 +15,7 @@ from videotool.assets.reports import write_license_report
 from videotool.core.job_spec import JobSpec, load_job, write_job_template
 from videotool.core.errors import ValidationError
 from videotool.core.media_probe import probe_media
+from videotool.core.storyboard import natural_sort_key
 from videotool.core.timeline import Timeline, compile_timeline
 from videotool.core.validation import validate_job_paths
 from videotool.package.manifest import write_package_manifest
@@ -23,7 +25,8 @@ from videotool.package.youtube import validate_package, write_description
 from videotool.render.commands import CommandPlan, build_ffmpeg_command
 from videotool.render.executor import RenderExecutor, RenderResult
 from videotool.render.music_loop import prepare_seamless_music
-from videotool.render.profiles import get_profile
+from videotool.render.profiles import RenderProfile, get_profile
+from videotool.render.segmented import SegmentedPlan, build_segmented_render
 from videotool.render.workspace import Workspace
 
 
@@ -56,12 +59,12 @@ def run_probe(job_path: Path) -> dict[str, object]:
     return payload
 
 
-def build_render_plans(
+def _compile_for_render(
     job_path: Path,
-    presets: list[str] | None = None,
-    subtitle_path: Path | None = None,
-    music_path: Path | None = None,
-) -> list[CommandPlan]:
+    presets: list[str] | None,
+    subtitle_path: Path | None,
+    music_path: Path | None,
+) -> tuple[Timeline, RenderProfile, list]:
     job = load_job(job_path)
     _raise_validation_errors(run_validate(job_path))
     selected = set(presets or [output.preset for output in job.outputs])
@@ -76,17 +79,45 @@ def build_render_plans(
     if music_path is not None:
         timeline = replace(timeline, music_path=music_path)
     profile = get_profile(job.render.encoder)
-    plans = [
-        build_ffmpeg_command(timeline, profile, output)
-        for output in timeline.outputs
-        if output.preset.name in selected
-    ]
-    if not plans:
+    outputs = [output for output in timeline.outputs if output.preset.name in selected]
+    if not outputs:
         raise ValidationError("No render presets selected.")
-    return plans
+    return timeline, profile, outputs
 
 
-def run_render(job_path: Path, presets: list[str] | None = None, dry_run: bool = False) -> list[RenderResult] | list[CommandPlan]:
+def build_render_plans(
+    job_path: Path,
+    presets: list[str] | None = None,
+    subtitle_path: Path | None = None,
+    music_path: Path | None = None,
+) -> list[CommandPlan]:
+    timeline, profile, outputs = _compile_for_render(job_path, presets, subtitle_path, music_path)
+    return [build_ffmpeg_command(timeline, profile, output) for output in outputs]
+
+
+def build_segmented_plans(
+    job_path: Path,
+    presets: list[str] | None = None,
+    subtitle_path: Path | None = None,
+    music_path: Path | None = None,
+    *,
+    workspace_root: Path,
+) -> list[SegmentedPlan]:
+    timeline, profile, outputs = _compile_for_render(job_path, presets, subtitle_path, music_path)
+    # Per-preset clips/concat list: different resolutions can't share concat inputs.
+    return [
+        build_segmented_render(
+            timeline,
+            profile,
+            output,
+            clips_dir=workspace_root / "clips" / output.preset.name,
+            concat_list_path=workspace_root / f"concat-{output.preset.name}.txt",
+        )
+        for output in outputs
+    ]
+
+
+def run_render(job_path: Path, presets: list[str] | None = None, dry_run: bool = False) -> list[RenderResult] | list[CommandPlan] | list[SegmentedPlan]:
     job = load_job(job_path)
     _raise_validation_errors(run_validate(job_path))
     _require_burn_subtitles(job, job_path)
@@ -97,6 +128,17 @@ def run_render(job_path: Path, presets: list[str] | None = None, dry_run: bool =
     workspace.prepare()
     subtitle_path = _stage_subtitle(job, job_path, workspace.root) if not dry_run else None
     music_path = _stage_music(job, job_path, workspace.root) if not dry_run else None
+    # Long storyboards render via the resumable clip-per-scene path; small ones keep
+    # the single inline xfade filtergraph (preserves true crossfades + existing tests).
+    if len(job.storyboard) > job.render.max_inline_scenes:
+        segmented_plans = build_segmented_plans(
+            job_path, presets, subtitle_path=subtitle_path, music_path=music_path,
+            workspace_root=workspace.root,
+        )
+        if dry_run:
+            return segmented_plans
+        executor = RenderExecutor()
+        return [executor.run_segmented(plan, workspace.logs_dir) for plan in segmented_plans]
     plans = build_render_plans(job_path, presets, subtitle_path=subtitle_path, music_path=music_path)
     if dry_run:
         return plans
@@ -107,11 +149,15 @@ def run_render(job_path: Path, presets: list[str] | None = None, dry_run: bool =
     ]
 
 
-def run_transcribe(job_path: Path, model: str) -> Path:
+def run_transcribe(job_path: Path, model: str, script: Path | None = None) -> Path:
     job = load_job(job_path)
     _raise_validation_errors(run_validate(job_path))
     transcriber = FasterWhisperTranscriber(model_path=Path(model))
     transcript = transcriber.transcribe(job_path.parent / job.inputs.voice, language=job.project.language)
+    # --script overrides inputs.script; both supply the polished wording.
+    script_path = script or (job_path.parent / job.inputs.script if job.inputs.script else None)
+    if script_path is not None:
+        transcript = align_script_to_transcript(parse_script(script_path), transcript)
     output = job_path.parent / "outputs" / "captions.srt"
     write_srt(transcript, output)
     return output
@@ -179,19 +225,43 @@ def _stage_subtitle(job: JobSpec, job_path: Path, workspace_root: Path) -> Path 
     return staged
 
 
+AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac", ".opus")
+
+
+def _resolve_music_tracks(music_path: Path) -> list[Path]:
+    """Resolve ``inputs.music`` to an ordered track list. A directory expands to all audio
+    files inside it, natural-sorted by filename (name tracks ``01-``, ``02-`` to order them);
+    a single file resolves to a one-element list."""
+    if music_path.is_dir():
+        tracks = [
+            path
+            for path in music_path.iterdir()
+            if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS
+        ]
+        return sorted(tracks, key=lambda path: natural_sort_key(path.name))
+    return [music_path]
+
+
 def _stage_music(job: JobSpec, job_path: Path, workspace_root: Path) -> Path | None:
-    """Pre-render the music track to exactly match the voice duration with crossfaded
-    seams. Returns the prepared FLAC path so the main render uses it instead of the
-    raw music file. Avoids the audible click at every loop boundary when a short
-    music track is naively repeated under a long voice track."""
+    """Pre-render the music bed to span the full video (voice plus any ending extension)
+    with crossfaded seams. Returns the prepared FLAC path so the main render uses it instead
+    of the raw music file. Avoids the audible click at every loop boundary when a short music
+    track is naively repeated under a long voice track. A music directory plays all its tracks
+    in order, then loops."""
     if not job.inputs.music:
         return None
     voice_metadata = probe_media(job_path.parent / job.inputs.voice)
     if not voice_metadata.duration or voice_metadata.duration <= 0:
         return None
+    # Cover the whole video: the storyboard can run past the voice (e.g. a 10s ending image).
+    scenes_total = sum(scene.duration for scene in job.storyboard)
+    target_duration = max(voice_metadata.duration, scenes_total)
+    tracks = _resolve_music_tracks(job_path.parent / job.inputs.music)
+    if not tracks:
+        return None
     return prepare_seamless_music(
-        music_path=job_path.parent / job.inputs.music,
-        target_duration=voice_metadata.duration,
+        music_paths=tracks,
+        target_duration=target_duration,
         workspace_root=workspace_root,
     )
 

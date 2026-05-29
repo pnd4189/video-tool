@@ -6,7 +6,7 @@ import typer
 
 from videotool import __version__
 from videotool.cli import commands
-from videotool.cli.storyboard_commands import plan_storyboard
+from videotool.cli.storyboard_commands import auto_storyboard, plan_storyboard
 
 app = typer.Typer(no_args_is_help=True)
 storyboard_app = typer.Typer(no_args_is_help=True)
@@ -60,8 +60,12 @@ def batch(root: Path, jobs: int = 1, dry_run: bool = False) -> None:
 
 
 @app.command()
-def transcribe(job_path: Path, model: str = typer.Option(..., "--model", help="Local faster-whisper model path.")) -> None:
-    raise typer.Exit(commands.transcribe(job_path, model))
+def transcribe(
+    job_path: Path,
+    model: str = typer.Option(..., "--model", help="Local faster-whisper model path."),
+    script: Path = typer.Option(None, "--script", help="Polished prose script; its wording is used with whisper timing."),
+) -> None:
+    raise typer.Exit(commands.transcribe(job_path, model, script))
 
 
 @app.command("analyze-audio")
@@ -101,3 +105,11 @@ def storyboard_plan(
     title: str | None = typer.Option(None, "--title"),
 ) -> None:
     plan_storyboard(image_prompts, video_prompts, media, voice, output, music, title)
+
+
+@storyboard_app.command("auto")
+def storyboard_auto(
+    job_path: Path,
+    images_dir: Path = typer.Option(..., "--images-dir"),
+) -> None:
+    auto_storyboard(job_path, images_dir)

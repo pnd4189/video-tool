@@ -98,7 +98,15 @@ def render(job_path: Path, presets: list[str] | None, all_presets: bool, dry_run
         print(to_json(result))
     else:
         for item in result:
-            console.print(item.command if dry_run else item.output_path)
+            if not dry_run:
+                console.print(item.output_path)
+            elif hasattr(item, "scene_commands"):
+                console.print(f"{item.preset}: {len(item.scene_commands)} scene clip(s) + 1 mux")
+                for scene in item.scene_commands:
+                    console.print(scene.command)
+                console.print(item.mux_command)
+            else:
+                console.print(item.command)
     return 0
 
 
@@ -135,9 +143,9 @@ def _render_in_worker(job_path: Path, dry_run: bool) -> int:
     return render(job_path, None, True, dry_run, False)
 
 
-def transcribe(job_path: Path, model: str) -> int:
+def transcribe(job_path: Path, model: str, script: Path | None = None) -> int:
     try:
-        console.print(f"Wrote {run_transcribe(job_path, model=model)}")
+        console.print(f"Wrote {run_transcribe(job_path, model=model, script=script)}")
     except DependencyError as exc:
         console.print(f"[red]MISSING DEPENDENCY[/red] {exc}")
         return DEPENDENCY_ERROR
