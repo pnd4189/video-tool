@@ -42,8 +42,9 @@ def validate_package(output_dir: Path, expected_videos: list[str] | None = None,
     checks.append(QualityCheck("captions_srt", status, "; ".join(srt_errors) if srt_errors else str(srt)))
     checks.append(_check("license_report", (output_dir / "license-report.md").exists(), "license-report.md"))
     checks.append(_check("description", (output_dir / "description.txt").exists(), "description.txt"))
-    checks.append(_check("quality_report", (output_dir / "quality-report.json").exists(), "quality-report.json"))
-    checks.append(_check("package_manifest", (output_dir / "package-manifest.json").exists(), "package-manifest.json"))
+    # quality-report.json and package-manifest.json are produced by the packaging step AFTER
+    # this validation runs (the report IS the serialized check list), so asserting them here
+    # is circular and always fails at generation time. They are not YouTube quality gates.
     checks.append(_check("thumbnail", (output_dir / "thumbnail-1280x720.jpg").exists(), "thumbnail-1280x720.jpg"))
     log_dir = output_dir.parent / ".videotool" / "tmp" / "logs"
     checks.append(_check("render_log", any(log_dir.glob("*.log")) if log_dir.exists() else False, str(log_dir)))
@@ -64,10 +65,20 @@ def measure_integrated_lufs(path: Path) -> float | None:
         raise DependencyError("ffmpeg was not found. Install FFmpeg 6.1+ and retry.") from exc
     except subprocess.TimeoutExpired:
         return None
-    match = re.search(r"I:\s*(-?\d+\.\d+)\s*LUFS", result.stderr)
-    if not match:
+    return parse_integrated_lufs(result.stderr)
+
+
+def parse_integrated_lufs(stderr: str) -> float | None:
+    """Extract the integrated loudness from ebur128 output.
+
+    ebur128 prints a running ``I: … LUFS`` per frame (the first readings are near-silent
+    startup values) and a final ``Summary`` block with the true integrated loudness. Take the
+    LAST match so long files report the summary value, not the startup reading.
+    """
+    matches = re.findall(r"I:\s*(-?\d+\.\d+)\s*LUFS", stderr)
+    if not matches:
         return None
-    return float(match.group(1))
+    return float(matches[-1])
 
 
 def _lufs_check(path: Path) -> QualityCheck:
