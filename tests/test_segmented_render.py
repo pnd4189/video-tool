@@ -20,7 +20,14 @@ def _scene_block(count: int) -> str:
     return "\n".join(lines)
 
 
-def _write_job(tmp_path: Path, scene_count: int, *, max_inline: int = 40, music: bool = True) -> Path:
+def _write_job(
+    tmp_path: Path,
+    scene_count: int,
+    *,
+    max_inline: int = 40,
+    music: bool = True,
+    enhance: str = "",
+) -> Path:
     (tmp_path / "media").mkdir(exist_ok=True)
     (tmp_path / "voice.wav").write_bytes(b"fake")
     if music:
@@ -41,6 +48,8 @@ inputs:
   - preset: youtube-16x9
 render:
   max_inline_scenes: {max_inline}
+{enhance}captions:
+  mode: "off"
 storyboard:
 {_scene_block(scene_count)}
 assets:
@@ -119,6 +128,114 @@ def test_mux_command_uses_concat_audio_graph_and_metadata(tmp_path: Path) -> Non
     assert "loudnorm=I=-14:TP=-1:LRA=11" in mux
     assert "-metadata title=segmented" in mux
     assert "-c:v copy" in mux
+
+
+def test_full_tier_segmented_mux_reencodes_with_overlay_graph(tmp_path: Path) -> None:
+    job_path = _write_job(tmp_path, 3, enhance="enhance:\n  tier: full\n  visualizer: false\n")
+    timeline = _timeline(job_path, 6.0)
+    plan = build_segmented_render(
+        timeline,
+        get_profile("libx264-fast"),
+        timeline.outputs[0],
+        clips_dir=tmp_path / "clips",
+        concat_list_path=tmp_path / "concat.txt",
+    )
+    mux = " ".join(plan.mux_command)
+    assert "-c:v copy" not in mux
+    assert "-filter_complex" in mux
+    assert "-map [v]" in mux
+    assert "dust.mp4" in mux
+    assert "[2:a]volume=-30.0dB" in mux
+    assert "[3:v]scale=1920:1080" in mux
+    assert "subtitles=filename=" in mux
+    assert "drawbox=" in mux
+    assert "sidechaincompress" in mux
+
+
+def test_full_tier_visualizer_preserves_padded_outro(tmp_path: Path) -> None:
+    job_path = _write_job(tmp_path, 2, enhance="enhance:\n  tier: full\n")
+    timeline = _timeline(job_path, 2.0)
+    plan = build_segmented_render(
+        timeline,
+        get_profile("libx264-fast"),
+        timeline.outputs[0],
+        clips_dir=tmp_path / "clips",
+        concat_list_path=tmp_path / "concat.txt",
+    )
+    mux = " ".join(plan.mux_command)
+    assert "showwaves=" in mux
+    assert "eof_action=pass" in mux
+    assert "apad=pad_dur=2" in mux
+
+
+def test_full_tier_segmented_without_music_keeps_particle_index(tmp_path: Path) -> None:
+    job_path = _write_job(tmp_path, 2, music=False, enhance="enhance:\n  tier: full\n  visualizer: false\n")
+    timeline = _timeline(job_path, 4.0)
+    plan = build_segmented_render(
+        timeline,
+        get_profile("libx264-fast"),
+        timeline.outputs[0],
+        clips_dir=tmp_path / "clips",
+        concat_list_path=tmp_path / "concat.txt",
+    )
+    mux = " ".join(plan.mux_command)
+    assert "[2:v]scale=1920:1080" in mux
+    assert "[1:a]volume=0.0dB" in mux
+    assert "-map [aout]" in mux
+
+
+def test_light_tier_particle_override_reencodes_segmented_mux(tmp_path: Path) -> None:
+    job_path = _write_job(
+        tmp_path,
+        2,
+        enhance=(
+            "enhance:\n"
+            "  tier: light\n"
+            "  particles: true\n"
+            "  subtitles: false\n"
+            "  progress_bar: false\n"
+            "  visualizer: false\n"
+        ),
+    )
+    timeline = _timeline(job_path, 4.0)
+    plan = build_segmented_render(
+        timeline,
+        get_profile("libx264-fast"),
+        timeline.outputs[0],
+        clips_dir=tmp_path / "clips",
+        concat_list_path=tmp_path / "concat.txt",
+    )
+    mux = " ".join(plan.mux_command)
+    assert "-c:v copy" not in mux
+    assert "[3:v]scale=1920:1080" in mux
+    assert "subtitles=filename=" not in mux
+
+
+def test_light_tier_subtitle_override_burns_segmented_subtitles(tmp_path: Path) -> None:
+    job_path = _write_job(
+        tmp_path,
+        2,
+        enhance=(
+            "enhance:\n"
+            "  tier: light\n"
+            "  subtitles: true\n"
+            "  particles: false\n"
+            "  progress_bar: false\n"
+            "  visualizer: false\n"
+        ),
+    )
+    timeline = _timeline(job_path, 4.0)
+    plan = build_segmented_render(
+        timeline,
+        get_profile("libx264-fast"),
+        timeline.outputs[0],
+        clips_dir=tmp_path / "clips",
+        concat_list_path=tmp_path / "concat.txt",
+    )
+    mux = " ".join(plan.mux_command)
+    assert "-c:v copy" not in mux
+    assert "subtitles=filename=" in mux
+    assert "-map [v]" in mux
 
 
 def test_routing_segmented_above_threshold(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

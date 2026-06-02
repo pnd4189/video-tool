@@ -67,3 +67,35 @@ def build_audio_graph(
         f"{music_vol}[musicpre];"
         f"[voice][musicpre]amix=inputs=2:duration=first:normalize=0{norm}[aout]"
     )
+
+
+def build_audio_output_graph(
+    voice_input: str,
+    music_input: str | None,
+    *,
+    voice_gain_db: float,
+    music_gain_db: float,
+    duck: bool,
+    normalize_lufs: float | None,
+    voice_pad_seconds: float = 0.0,
+) -> str:
+    if music_input is not None:
+        return build_audio_graph(
+            voice_input,
+            music_input,
+            voice_gain_db=voice_gain_db,
+            music_gain_db=music_gain_db,
+            duck=duck,
+            normalize_lufs=normalize_lufs,
+            voice_pad_seconds=voice_pad_seconds,
+        )
+    audio_filter = build_audio_graph(
+        voice_input,
+        None,
+        voice_gain_db=voice_gain_db,
+        music_gain_db=music_gain_db,
+        duck=duck,
+        normalize_lufs=normalize_lufs,
+        voice_pad_seconds=voice_pad_seconds,
+    )
+    return f"[{voice_input}]{audio_filter}[aout]"

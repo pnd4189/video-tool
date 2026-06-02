@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from videotool.core.timeline import Timeline, TimelineOutput, TimelineScene
-from videotool.render.audio_graph import audio_settings, build_audio_graph
+from videotool.render.audio_graph import audio_settings, build_audio_graph, build_audio_output_graph
 from videotool.render.commands import CommandPlan
+from videotool.render.overlay_graph import build_video_overlay, needs_video_overlay, particle_input_args
 from videotool.render.profiles import RenderProfile
 from videotool.render.video_filters import codec_args, is_image, metadata_args, scene_filter
 
@@ -45,7 +46,7 @@ def build_segmented_render(
     concat_list_text = "".join(
         f"file '{plan.output_path}'\n" for plan in scene_commands
     )
-    mux_command = _build_mux_command(timeline, output, concat_list_path)
+    mux_command = _build_mux_command(timeline, profile, output, concat_list_path)
     return SegmentedPlan(
         scene_commands=scene_commands,
         concat_list_path=concat_list_path,
@@ -82,20 +83,38 @@ def _build_scene_clip(
     return CommandPlan(command=command, output_path=clip_path, preset=output.preset.name)
 
 
-def _build_mux_command(timeline: Timeline, output: TimelineOutput, concat_list_path: Path) -> list[str]:
+def _build_mux_command(timeline: Timeline, profile: RenderProfile, output: TimelineOutput, concat_list_path: Path) -> list[str]:
     # Concat input = 0, voice = 1, music = 2 (when present).
     command = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list_path)]
     command.extend(["-i", str(timeline.voice_path)])
     if timeline.music_path:
         command.extend(["-stream_loop", "-1", "-i", str(timeline.music_path)])
-    if timeline.music_path:
+    particle_index = _append_particle_input(command, timeline, output)
+    if needs_video_overlay(timeline):
+        filters, voice_audio, voice_visual = _voice_labels_for_complex(timeline)
+        filters.append(
+            build_video_overlay(
+                "0:v:0", "v", timeline, output,
+                particle_input_idx=particle_index, audio_label=voice_visual,
+            )
+        )
+        filters.append(
+            build_audio_output_graph(
+                voice_audio,
+                "2:a" if timeline.music_path else None,
+                **audio_settings(timeline),
+            )
+        )
+        command.extend(["-filter_complex", ";".join(filters), "-map", "[v]", "-map", "[aout]"])
+        command.extend(codec_args(profile))
+    elif timeline.music_path:
         audio_graph = build_audio_graph("1:a", "2:a", **audio_settings(timeline))
         command.extend(["-filter_complex", audio_graph, "-map", "0:v:0", "-map", "[aout]"])
+        command.extend(["-c:v", "copy"])
     else:
         af = build_audio_graph("1:a", None, **audio_settings(timeline))
         command.extend(["-map", "0:v:0", "-map", "1:a:0", "-af", af])
-    # Clips are already encoded identically; copy the joined video, only the audio is new.
-    command.extend(["-c:v", "copy"])
+        command.extend(["-c:v", "copy"])
     command.extend(metadata_args(timeline))
     command.extend([
         "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
@@ -104,3 +123,17 @@ def _build_mux_command(timeline: Timeline, output: TimelineOutput, concat_list_p
     ])
     command.append(str(output.output_path))
     return command
+
+
+def _append_particle_input(command: list[str], timeline: Timeline, output: TimelineOutput) -> int | None:
+    if not timeline.enhance_particles:
+        return None
+    index = sum(1 for arg in command if arg == "-i")
+    command.extend(particle_input_args(timeline, output))
+    return index
+
+
+def _voice_labels_for_complex(timeline: Timeline) -> tuple[list[str], str, str | None]:
+    if not timeline.enhance_visualizer:
+        return [], "1:a", None
+    return ["[1:a]asplit=2[voiceaudio][voiceviz]"], "voiceaudio", "voiceviz"

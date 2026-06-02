@@ -6,6 +6,7 @@ from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
 
 from videotool.ai.align_script import align_script_to_transcript, parse_script
+from videotool.core.chapter_timing import derive_chapters
 from videotool.ai.faster_whisper_adapter import FasterWhisperTranscriber
 from videotool.ai.silence import detect_silence, write_cut_suggestions
 from videotool.ai.subtitles import write_srt
@@ -21,7 +22,12 @@ from videotool.core.validation import validate_job_paths
 from videotool.package.manifest import write_package_manifest
 from videotool.package.reports import write_quality_report
 from videotool.package.thumbnails import generate_thumbnail_candidates
-from videotool.package.youtube import validate_package, write_description
+from videotool.package.youtube import (
+    format_chapters_block,
+    render_description_template,
+    validate_package,
+    write_description,
+)
 from videotool.render.commands import CommandPlan, build_ffmpeg_command
 from videotool.render.executor import RenderExecutor, RenderResult
 from videotool.render.music_loop import prepare_seamless_music
@@ -64,8 +70,11 @@ def _compile_for_render(
     presets: list[str] | None,
     subtitle_path: Path | None,
     music_path: Path | None,
+    enhance_tier: str | None = None,
 ) -> tuple[Timeline, RenderProfile, list]:
     job = load_job(job_path)
+    if enhance_tier is not None:
+        job = job.model_copy(update={"enhance": job.enhance.model_copy(update={"tier": enhance_tier})})
     _raise_validation_errors(run_validate(job_path))
     selected = set(presets or [output.preset for output in job.outputs])
     available = {output.preset for output in job.outputs}
@@ -90,8 +99,9 @@ def build_render_plans(
     presets: list[str] | None = None,
     subtitle_path: Path | None = None,
     music_path: Path | None = None,
+    enhance_tier: str | None = None,
 ) -> list[CommandPlan]:
-    timeline, profile, outputs = _compile_for_render(job_path, presets, subtitle_path, music_path)
+    timeline, profile, outputs = _compile_for_render(job_path, presets, subtitle_path, music_path, enhance_tier)
     return [build_ffmpeg_command(timeline, profile, output) for output in outputs]
 
 
@@ -102,8 +112,9 @@ def build_segmented_plans(
     music_path: Path | None = None,
     *,
     workspace_root: Path,
+    enhance_tier: str | None = None,
 ) -> list[SegmentedPlan]:
-    timeline, profile, outputs = _compile_for_render(job_path, presets, subtitle_path, music_path)
+    timeline, profile, outputs = _compile_for_render(job_path, presets, subtitle_path, music_path, enhance_tier)
     # Per-preset clips/concat list: different resolutions can't share concat inputs.
     return [
         build_segmented_render(
@@ -117,8 +128,15 @@ def build_segmented_plans(
     ]
 
 
-def run_render(job_path: Path, presets: list[str] | None = None, dry_run: bool = False) -> list[RenderResult] | list[CommandPlan] | list[SegmentedPlan]:
+def run_render(
+    job_path: Path,
+    presets: list[str] | None = None,
+    dry_run: bool = False,
+    enhance_tier: str | None = None,
+) -> list[RenderResult] | list[CommandPlan] | list[SegmentedPlan]:
     job = load_job(job_path)
+    if enhance_tier is not None:
+        job = job.model_copy(update={"enhance": job.enhance.model_copy(update={"tier": enhance_tier})})
     _raise_validation_errors(run_validate(job_path))
     _require_burn_subtitles(job, job_path)
     library, _ = _load_library_for_job(job, job_path)
@@ -133,13 +151,13 @@ def run_render(job_path: Path, presets: list[str] | None = None, dry_run: bool =
     if len(job.storyboard) > job.render.max_inline_scenes:
         segmented_plans = build_segmented_plans(
             job_path, presets, subtitle_path=subtitle_path, music_path=music_path,
-            workspace_root=workspace.root,
+            workspace_root=workspace.root, enhance_tier=enhance_tier,
         )
         if dry_run:
             return segmented_plans
         executor = RenderExecutor()
         return [executor.run_segmented(plan, workspace.logs_dir) for plan in segmented_plans]
-    plans = build_render_plans(job_path, presets, subtitle_path=subtitle_path, music_path=music_path)
+    plans = build_render_plans(job_path, presets, subtitle_path=subtitle_path, music_path=music_path, enhance_tier=enhance_tier)
     if dry_run:
         return plans
     executor = RenderExecutor()
@@ -160,6 +178,15 @@ def run_transcribe(job_path: Path, model: str, script: Path | None = None) -> Pa
         transcript = align_script_to_transcript(parse_script(script_path), transcript)
     output = job_path.parent / "outputs" / "captions.srt"
     write_srt(transcript, output)
+    # One whisper pass feeds both captions and YouTube chapters: derive chapter markers from
+    # the same aligned transcript. Skip silently when fewer than 3 valid headings are found.
+    chapters = derive_chapters(transcript)
+    if chapters:
+        chapters_path = job_path.parent / "outputs" / "chapters.json"
+        chapters_path.write_text(
+            json.dumps([{"start": start, "title": title} for start, title in chapters], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     return output
 
 
@@ -179,16 +206,29 @@ def run_package(job_path: Path) -> list[object]:
     library, _ = _load_library_for_job(job, job_path)
     issues = validate_asset_policy(library.records, job.assets.policy)
     write_license_report(library, output_dir / "license-report.md", issues)
-    chapters = [(chapter.start, chapter.title) for chapter in job.project.chapters]
-    write_description(
-        job.project.title,
-        output_dir / "license-report.md",
-        output_dir / "description.txt",
-        description=job.project.description,
-        chapters=chapters,
-        tags=job.project.tags,
-        cta=job.project.cta,
-    )
+    chapters = _load_chapters(job, output_dir)
+    description_path = output_dir / "description.txt"
+    if job.inputs.description_template is not None:
+        template_text = (job_path.parent / job.inputs.description_template).read_text(encoding="utf-8")
+        description_path.write_text(
+            render_description_template(
+                template_text,
+                chapters_block=format_chapters_block(chapters),
+                recap_prev=job.project.recap_previous,
+                summary=job.project.description,
+            ),
+            encoding="utf-8",
+        )
+    else:
+        write_description(
+            job.project.title,
+            output_dir / "license-report.md",
+            description_path,
+            description=job.project.description,
+            chapters=chapters,
+            tags=job.project.tags,
+            cta=job.project.cta,
+        )
     _generate_thumbnails(output_dir, [f"{output.preset}.mp4" for output in job.outputs])
     expected_videos = [f"{output.preset}.mp4" for output in job.outputs]
     checks = validate_package(output_dir, expected_videos=expected_videos, require_srt=job.package.write_srt)
@@ -197,6 +237,16 @@ def run_package(job_path: Path) -> list[object]:
     files = sorted(path for path in output_dir.iterdir() if path.is_file() and path != manifest_path)
     write_package_manifest(files, job_path, manifest_path)
     return checks
+
+
+def _load_chapters(job: JobSpec, output_dir: Path) -> list[tuple[float, str]]:
+    """Chapter markers for the description: prefer the whisper-derived outputs/chapters.json,
+    fall back to job.project.chapters when it is absent."""
+    chapters_path = output_dir / "chapters.json"
+    if chapters_path.exists():
+        data = json.loads(chapters_path.read_text(encoding="utf-8"))
+        return [(float(entry["start"]), str(entry["title"])) for entry in data]
+    return [(chapter.start, chapter.title) for chapter in job.project.chapters]
 
 
 def json_default(value: object) -> str:
@@ -215,7 +265,7 @@ def _stage_subtitle(job: JobSpec, job_path: Path, workspace_root: Path) -> Path 
     """Copy outputs/captions.srt to a short ASCII-safe path inside the workspace before
     render. ffmpeg's subtitles filter is fragile with paths containing spaces, single
     quotes, or filtergraph metacharacters; staging avoids those entirely."""
-    if job.captions.mode != "srt-and-burn":
+    if job.captions.mode != "srt-and-burn" and not job.enhance.is_on("subtitles"):
         return None
     source = job_path.parent / "outputs" / "captions.srt"
     if not source.exists():
@@ -297,7 +347,7 @@ def _raise_validation_errors(errors: list[str]) -> None:
 
 
 def _require_burn_subtitles(job: JobSpec, job_path: Path) -> None:
-    if job.captions.mode == "srt-and-burn" and not (job_path.parent / "outputs" / "captions.srt").exists():
+    if (job.captions.mode == "srt-and-burn" or job.enhance.is_on("subtitles")) and not (job_path.parent / "outputs" / "captions.srt").exists():
         raise ValidationError("captions.mode is srt-and-burn but outputs/captions.srt is missing.")
 
 

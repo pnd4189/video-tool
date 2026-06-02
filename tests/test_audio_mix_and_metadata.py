@@ -74,7 +74,7 @@ def test_manifest_does_not_include_itself(tmp_path: Path) -> None:
 
 
 def test_filter_escape_handles_brackets_and_semicolons() -> None:
-    from videotool.render.commands import _escape_filter_value
+    from videotool.render.overlay_graph import _escape_filter_value
 
     escaped = _escape_filter_value(Path("/tmp/foo[bar]/captions;subtitle.srt"))
     assert "[" not in escaped.replace("\\[", "")

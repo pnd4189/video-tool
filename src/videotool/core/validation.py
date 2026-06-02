@@ -17,6 +17,10 @@ def validate_job_paths(job: JobSpec, job_path: Path, require_existing: bool = Tr
         candidates.append(root / job.inputs.intro_image)
     if job.inputs.ending_image:
         candidates.append(root / job.inputs.ending_image)
+    if job.inputs.particle_overlay:
+        candidates.append(root / job.inputs.particle_overlay)
+    if job.inputs.description_template:
+        candidates.append(root / job.inputs.description_template)
     candidates.extend(root / scene.image for scene in job.storyboard)
     candidates.append(root / job.render.temp_dir)
     for candidate in candidates:

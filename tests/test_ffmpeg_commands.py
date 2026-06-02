@@ -119,3 +119,107 @@ assets:
     timeline = compile_timeline(load_job(job_path), job_path, duration=2.0)
     plan = build_ffmpeg_command(timeline, get_profile("libx264-fast"), timeline.outputs[0])
     assert "subtitles=filename=" in " ".join(plan.command)
+
+
+def test_full_tier_storyboard_command_adds_overlay_graph(tmp_path: Path) -> None:
+    job_path = tmp_path / "job.yaml"
+    (tmp_path / "media").mkdir()
+    (tmp_path / "media" / "scene-001.png").write_bytes(b"fake")
+    job_path.write_text(
+        """
+version: 1
+project:
+  title: full-overlay
+inputs:
+  voice: voice.wav
+  media_dir: media
+outputs:
+  - preset: youtube-16x9
+enhance:
+  tier: full
+  visualizer: false
+storyboard:
+  - scene: 1
+    image: media/scene-001.png
+    duration: 2.0
+assets:
+  policy: allow-missing-local
+""",
+        encoding="utf-8",
+    )
+    timeline = compile_timeline(load_job(job_path), job_path, duration=2.0)
+    plan = build_ffmpeg_command(timeline, get_profile("libx264-fast"), timeline.outputs[0])
+    command = " ".join(plan.command)
+    assert "subtitles=filename=" in command
+    assert "drawbox=" in command
+    assert "dust.mp4" in command
+    assert "-map [vfull]" in command
+
+
+def test_light_tier_subtitle_override_burns_inline_subtitles_once(tmp_path: Path) -> None:
+    job_path = tmp_path / "job.yaml"
+    (tmp_path / "media").mkdir()
+    (tmp_path / "media" / "scene-001.png").write_bytes(b"fake")
+    job_path.write_text(
+        """
+version: 1
+project:
+  title: subtitle-override
+inputs:
+  voice: voice.wav
+  media_dir: media
+outputs:
+  - preset: youtube-16x9
+enhance:
+  tier: light
+  subtitles: true
+  particles: false
+  progress_bar: false
+  visualizer: false
+storyboard:
+  - scene: 1
+    image: media/scene-001.png
+    duration: 2.0
+assets:
+  policy: allow-missing-local
+""",
+        encoding="utf-8",
+    )
+    timeline = compile_timeline(load_job(job_path), job_path, duration=2.0)
+    plan = build_ffmpeg_command(timeline, get_profile("libx264-fast"), timeline.outputs[0])
+    command = " ".join(plan.command)
+    assert command.count("subtitles=filename=") == 1
+    assert "-map [vfull]" in command
+
+
+def test_single_background_overlay_still_burns_manual_srt(tmp_path: Path) -> None:
+    # No storyboard -> single-background path. An overlay feature (particles) routes through
+    # the filter_complex branch; a manual srt-and-burn must still be burned, not dropped.
+    job_path = tmp_path / "job.yaml"
+    (tmp_path / "media").mkdir()
+    (tmp_path / "media" / "bg.png").write_bytes(b"fake")
+    job_path.write_text(
+        """
+version: 1
+project:
+  title: single-bg-overlay
+inputs:
+  voice: voice.wav
+  media_dir: media
+outputs:
+  - preset: youtube-16x9
+captions:
+  mode: srt-and-burn
+enhance:
+  tier: light
+  particles: true
+  subtitles: false
+assets:
+  policy: allow-missing-local
+""",
+        encoding="utf-8",
+    )
+    timeline = compile_timeline(load_job(job_path), job_path, duration=2.0)
+    command = " ".join(build_ffmpeg_command(timeline, get_profile("libx264-fast"), timeline.outputs[0]).command)
+    assert command.count("subtitles=filename=") == 1
+    assert "-map [vfull]" in command

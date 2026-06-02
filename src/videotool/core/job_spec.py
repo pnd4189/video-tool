@@ -22,6 +22,8 @@ class ProjectSpec(BaseModel):
     title: str = Field(min_length=1)
     language: str = "vi"
     description: str = ""
+    # Recap of the previous episode, shown above this episode's summary so viewers can catch up.
+    recap_previous: str = ""
     author: str = ""
     tags: list[str] = Field(default_factory=list)
     chapters: list[ChapterSpec] = Field(default_factory=list)
@@ -40,6 +42,11 @@ class InputSpec(BaseModel):
     intro_image: Path | None = None
     # Optional ending image appended as an extra outro after the voice ends.
     ending_image: Path | None = None
+    # Optional particle/grain overlay used by enhance.tier=full; bundled default is used when unset.
+    particle_overlay: Path | None = None
+    # Optional description template (with {{CHAPTERS}}/{{RECAP_PREV}}/{{SUMMARY}} placeholders);
+    # when set, package renders outputs/description.txt from it instead of the generic format.
+    description_template: Path | None = None
 
 
 class OutputSpec(BaseModel):
@@ -82,7 +89,7 @@ class AudioSpec(BaseModel):
 
     voice_gain_db: float = 0.0
     # Low enough that a gentle music bed never competes with narration on audio-story videos.
-    music_gain_db: float = -28.0
+    music_gain_db: float = -30.0
     duck: bool = True
     # When None, the final loudnorm pass is dropped and dB gains become absolute.
     normalize_lufs: float | None = -14.0
@@ -92,6 +99,32 @@ class CaptionSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mode: Literal["off", "srt-only", "srt-and-burn"] = "srt-only"
+
+
+# Overlay features the "full" tier turns on. Each has a per-feature override on EnhanceSpec.
+ENHANCE_FEATURES = ("subtitles", "particles", "progress_bar", "visualizer")
+
+
+class EnhanceSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Master switch. light = current fast path (zoompan + concat-BGM, segmented `-c:v copy`).
+    # full = overlay package re-encoded once (subtitles/particles/progress bar/visualizer).
+    tier: Literal["light", "full"] = "light"
+    # Per-feature overrides: None follows the tier; a bool forces the feature on/off.
+    subtitles: bool | None = None
+    particles: bool | None = None
+    progress_bar: bool | None = None
+    visualizer: bool | None = None
+
+    def is_on(self, feature: str) -> bool:
+        """Resolve a single overlay feature: explicit override wins, else follow the tier."""
+        if feature not in ENHANCE_FEATURES:
+            raise ValueError(f"Unknown enhance feature '{feature}'. Expected one of: {', '.join(ENHANCE_FEATURES)}")
+        override = getattr(self, feature)
+        if override is not None:
+            return override
+        return self.tier == "full"
 
 
 class AssetPolicySpec(BaseModel):
@@ -131,6 +164,7 @@ class JobSpec(BaseModel):
     storyboard: list[StoryboardSceneSpec] = Field(default_factory=list)
     audio: AudioSpec = Field(default_factory=AudioSpec)
     captions: CaptionSpec = Field(default_factory=CaptionSpec)
+    enhance: EnhanceSpec = Field(default_factory=EnhanceSpec)
     assets: AssetPolicySpec = Field(default_factory=AssetPolicySpec)
     render: RenderSpec = Field(default_factory=RenderSpec)
     package: PackageSpec = Field(default_factory=PackageSpec)

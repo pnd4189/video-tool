@@ -4,7 +4,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from videotool.core.timeline import Timeline, TimelineOutput, TimelineScene
-from videotool.render.audio_graph import audio_settings, build_audio_graph
+from videotool.render.audio_graph import audio_settings, build_audio_graph, build_audio_output_graph
+from videotool.render.overlay_graph import (
+    build_video_overlay,
+    caption_filter,
+    needs_video_overlay,
+    particle_input_args,
+)
 from videotool.render.profiles import RenderProfile
 from videotool.render.video_filters import codec_args, is_image, metadata_args, scene_filter
 
@@ -34,22 +40,38 @@ def build_ffmpeg_command(timeline: Timeline, profile: RenderProfile, output: Tim
     command.extend(["-i", str(timeline.voice_path)])
     if timeline.music_path:
         command.extend(["-stream_loop", "-1", "-i", str(timeline.music_path)])
+    particle_index = _append_particle_input(command, timeline, output)
     duration_args = ["-shortest"]
     if timeline.duration:
         duration_args = ["-t", f"{timeline.duration:.3f}"]
-    video_filter = (
+    base_filter = (
         f"scale={output.preset.width}:{output.preset.height}:force_original_aspect_ratio=increase,"
         f"crop={output.preset.width}:{output.preset.height},setsar=1,fps={output.preset.fps},format=yuv420p"
     )
-    caption_filter = _caption_filter(timeline, output)
-    if caption_filter:
-        video_filter = f"{video_filter},{caption_filter}"
-    command.extend(["-vf", video_filter])
-    if timeline.music_path:
-        # voice index = 1, music index = 2.
+    if needs_video_overlay(timeline):
+        filters, voice_audio, voice_visual = _voice_labels_for_complex(timeline, 1)
+        # Manual srt-and-burn (no enhance) still burns here; enhance subtitles burn inside the overlay.
+        caption = caption_filter(timeline, output)
+        base = f"{base_filter},{caption}" if caption and not timeline.enhance_subtitles else base_filter
+        filters.append(f"[0:v]{base}[vbase]")
+        filters.append(
+            build_video_overlay(
+                "vbase", "vfull", timeline, output,
+                particle_input_idx=particle_index, audio_label=voice_visual,
+            )
+        )
+        filters.append(build_audio_output_graph(voice_audio, "2:a" if timeline.music_path else None, **audio_settings(timeline)))
+        command.extend(["-filter_complex", ";".join(part for part in filters if part), "-map", "[vfull]", "-map", "[aout]"])
+    elif timeline.music_path:
+        caption = caption_filter(timeline, output)
+        video_filter = f"{base_filter},{caption}" if caption else base_filter
+        command.extend(["-vf", video_filter])
         audio_graph = build_audio_graph("1:a", "2:a", **audio_settings(timeline))
         command.extend(["-filter_complex", audio_graph, "-map", "0:v:0", "-map", "[aout]"])
     else:
+        caption = caption_filter(timeline, output)
+        video_filter = f"{base_filter},{caption}" if caption else base_filter
+        command.extend(["-vf", video_filter])
         af = build_audio_graph("1:a", None, **audio_settings(timeline))
         command.extend(["-map", "0:v:0", "-map", "1:a:0", "-af", af])
     command.extend(codec_args(profile))
@@ -73,6 +95,7 @@ def _build_storyboard_command(timeline: Timeline, profile: RenderProfile, output
     music_index = voice_index + 1
     if timeline.music_path:
         command.extend(["-stream_loop", "-1", "-i", str(timeline.music_path)])
+    particle_index = _append_particle_input(command, timeline, output)
 
     filters: list[str] = []
     scene_labels: list[str] = []
@@ -81,18 +104,32 @@ def _build_storyboard_command(timeline: Timeline, profile: RenderProfile, output
         scene_labels.append(label)
         filters.append(scene_filter(index, scene, output, label))
     video_label = _join_scene_filters(filters, scene_labels, timeline.scenes)
-    caption_filter = _caption_filter(timeline, output)
-    if caption_filter:
-        filters.append(f"[{video_label}]{caption_filter},format=yuv420p[vcaption]")
+    caption = caption_filter(timeline, output)
+    if caption and not timeline.enhance_subtitles:
+        filters.append(f"[{video_label}]{caption},format=yuv420p[vcaption]")
         video_label = "vcaption"
-    if timeline.music_path:
+    if needs_video_overlay(timeline):
+        audio_filters, voice_audio, voice_visual = _voice_labels_for_complex(timeline, voice_index)
+        filters.extend(audio_filters)
         filters.append(
-            build_audio_graph(f"{voice_index}:a", f"{music_index}:a", **audio_settings(timeline))
+            build_video_overlay(
+                video_label, "vfull", timeline, output,
+                particle_input_idx=particle_index, audio_label=voice_visual,
+            )
         )
-    command.extend(["-filter_complex", ";".join(filters), "-map", f"[{video_label}]"])
-    if timeline.music_path:
-        command.extend(["-map", "[aout]"])
+        filters.append(
+            build_audio_output_graph(
+                voice_audio,
+                f"{music_index}:a" if timeline.music_path else None,
+                **audio_settings(timeline),
+            )
+        )
+        command.extend(["-filter_complex", ";".join(filters), "-map", "[vfull]", "-map", "[aout]"])
+    elif timeline.music_path:
+        filters.append(build_audio_graph(f"{voice_index}:a", f"{music_index}:a", **audio_settings(timeline)))
+        command.extend(["-filter_complex", ";".join(filters), "-map", f"[{video_label}]", "-map", "[aout]"])
     else:
+        command.extend(["-filter_complex", ";".join(filters), "-map", f"[{video_label}]"])
         af = build_audio_graph(f"{voice_index}:a", None, **audio_settings(timeline))
         command.extend(["-map", f"{voice_index}:a:0", "-af", af])
 
@@ -150,31 +187,19 @@ def _xfade_name(transition: str) -> str:
     return "fade"
 
 
-def _caption_filter(timeline: Timeline, output: TimelineOutput) -> str:
-    if timeline.caption_mode != "srt-and-burn":
-        return ""
-    # Prefer a pre-staged safe-path SRT (set by services.run_render) to avoid filter-graph
-    # escape pitfalls. Fall back to the canonical outputs/captions.srt for callers that
-    # build a command directly (tests, dry-run).
-    srt_path = timeline.subtitle_path or timeline.root / "outputs" / "captions.srt"
-    alignment = 2  # bottom-center for 16:9
-    margin_v = 64
-    if output.preset.height > output.preset.width:
-        # Shorts/vertical: lift captions higher so they are not cut by mobile UI overlays.
-        alignment = 2
-        margin_v = 180
-    style = (
-        f"FontSize={output.preset.subtitle_font_size},"
-        f"Outline=2,Shadow=1,Alignment={alignment},MarginV={margin_v}"
-    )
-    return f"subtitles=filename='{_escape_filter_value(srt_path)}':force_style='{style}'"
+def _append_particle_input(command: list[str], timeline: Timeline, output: TimelineOutput) -> int | None:
+    if not timeline.enhance_particles:
+        return None
+    index = _next_input_index(command)
+    command.extend(particle_input_args(timeline, output))
+    return index
 
 
-def _escape_filter_value(path: Path) -> str:
-    # Escape characters that have special meaning inside an ffmpeg filtergraph value.
-    # Backslash must come first so subsequent inserted backslashes are not re-escaped.
-    text = str(path)
-    text = text.replace("\\", "\\\\")
-    for ch in (":", ",", "'", "[", "]", ";"):
-        text = text.replace(ch, "\\" + ch)
-    return text
+def _next_input_index(command: list[str]) -> int:
+    return sum(1 for arg in command if arg == "-i")
+
+
+def _voice_labels_for_complex(timeline: Timeline, voice_index: int) -> tuple[list[str], str, str | None]:
+    if not timeline.enhance_visualizer:
+        return [], f"{voice_index}:a", None
+    return [f"[{voice_index}:a]asplit=2[voiceaudio][voiceviz]"], "voiceaudio", "voiceviz"

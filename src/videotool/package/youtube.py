@@ -122,6 +122,28 @@ def write_description(
     output_path.write_text("\n".join(parts) + "\n", encoding="utf-8")
 
 
+def format_chapters_block(chapters: list[tuple[float, str]]) -> str:
+    """One ``MM:SS Title`` (or ``HH:MM:SS`` past an hour) line per chapter, in order."""
+    return "\n".join(f"{_format_chapter_timestamp(start)} {title}" for start, title in chapters)
+
+
+def render_description_template(
+    template_text: str,
+    *,
+    chapters_block: str,
+    recap_prev: str,
+    summary: str,
+) -> str:
+    """Substitute the three channel placeholders. Literal replace (KISS); missing values
+    collapse to empty so no ``{{...}}`` token is ever left in the output."""
+    return (
+        template_text
+        .replace("{{CHAPTERS}}", chapters_block)
+        .replace("{{RECAP_PREV}}", recap_prev.strip())
+        .replace("{{SUMMARY}}", summary.strip())
+    )
+
+
 def _format_chapter_timestamp(seconds: float) -> str:
     total = max(0, int(round(seconds)))
     hours, remainder = divmod(total, 3600)

@@ -78,10 +78,17 @@ def probe(job_path: Path, json_output: bool = False) -> int:
     return 0
 
 
-def render(job_path: Path, presets: list[str] | None, all_presets: bool, dry_run: bool, json_output: bool) -> int:
+def render(
+    job_path: Path,
+    presets: list[str] | None,
+    all_presets: bool,
+    dry_run: bool,
+    json_output: bool,
+    enhance_tier: str | None = None,
+) -> int:
     selected = None if all_presets else presets
     try:
-        result = run_render(job_path, selected, dry_run=dry_run)
+        result = run_render(job_path, selected, dry_run=dry_run, enhance_tier=enhance_tier)
     except LicensePolicyError as exc:
         console.print(f"[red]LICENSE BLOCK[/red] {exc}")
         return LICENSE_BLOCK

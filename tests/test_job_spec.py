@@ -55,3 +55,51 @@ def test_burn_in_caption_mode_is_supported() -> None:
         }
     )
     assert job.captions.mode == "srt-and-burn"
+
+
+def test_enhance_tier_defaults_to_light() -> None:
+    job = JobSpec.model_validate(
+        {
+            "version": 1,
+            "project": {"title": "default-enhance"},
+            "inputs": {"voice": "voice.wav"},
+        }
+    )
+    assert job.enhance.tier == "light"
+
+
+def test_enhance_overrides_parse() -> None:
+    job = JobSpec.model_validate(
+        {
+            "version": 1,
+            "project": {"title": "override-enhance"},
+            "inputs": {"voice": "voice.wav"},
+            "enhance": {"tier": "full", "visualizer": False},
+        }
+    )
+    assert job.enhance.tier == "full"
+    assert job.enhance.is_on("subtitles") is True
+    assert job.enhance.is_on("visualizer") is False
+
+
+def test_enhance_unknown_key_rejected() -> None:
+    with pytest.raises(ValueError, match="Extra inputs"):
+        JobSpec.model_validate(
+            {
+                "version": 1,
+                "project": {"title": "bad-enhance"},
+                "inputs": {"voice": "voice.wav"},
+                "enhance": {"tier": "full", "glow": True},
+            }
+        )
+
+
+def test_particle_overlay_input_is_optional() -> None:
+    job = JobSpec.model_validate(
+        {
+            "version": 1,
+            "project": {"title": "particle-overlay"},
+            "inputs": {"voice": "voice.wav", "particle_overlay": "overlays/dust.mp4"},
+        }
+    )
+    assert job.inputs.particle_overlay == Path("overlays/dust.mp4")

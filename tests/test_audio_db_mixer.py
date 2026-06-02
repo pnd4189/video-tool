@@ -35,9 +35,9 @@ def test_default_audio_keeps_sidechain_and_loudnorm(tmp_path: Path) -> None:
     assert "loudnorm=I=-14:TP=-1:LRA=11" in command
 
 
-def test_default_music_gain_is_minus_28_db(tmp_path: Path) -> None:
+def test_default_music_gain_is_minus_30_db(tmp_path: Path) -> None:
     command = _command_for(_BASE, tmp_path)
-    assert "volume=-28.0dB" in command
+    assert "volume=-30.0dB" in command
     assert "volume=0.5" not in command
 
 

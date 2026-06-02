@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import typer
 
@@ -50,8 +51,9 @@ def render(
     all_presets: bool = typer.Option(False, "--all"),
     dry_run: bool = False,
     json_output: bool = typer.Option(False, "--json"),
+    enhance: Literal["light", "full"] | None = typer.Option(None, "--enhance"),
 ) -> None:
-    raise typer.Exit(commands.render(job_path, preset, all_presets, dry_run, json_output))
+    raise typer.Exit(commands.render(job_path, preset, all_presets, dry_run, json_output, enhance))
 
 
 @app.command()

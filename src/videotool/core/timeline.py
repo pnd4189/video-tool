@@ -33,6 +33,7 @@ class Timeline:
     caption_mode: str
     scenes: list[TimelineScene]
     outputs: list[TimelineOutput]
+    particle_overlay_path: Path | None = None
     duration: float | None = None
     description: str = ""
     author: str = ""
@@ -45,6 +46,13 @@ class Timeline:
     # Silence appended to the voice so it spans the full video when scenes (e.g. an ending
     # image) extend past the narration. Keeps `-shortest` from truncating the outro.
     voice_pad_seconds: float = 0.0
+    # Resolved overlay tier. light (default) = current fast render, byte-identical output.
+    # full = overlay package; per-feature flags below are resolved from EnhanceSpec.
+    enhance_tier: str = "light"
+    enhance_subtitles: bool = False
+    enhance_particles: bool = False
+    enhance_progress_bar: bool = False
+    enhance_visualizer: bool = False
 
 
 def compile_timeline(job: JobSpec, job_path: Path, duration: float | None = None) -> Timeline:
@@ -76,7 +84,8 @@ def compile_timeline(job: JobSpec, job_path: Path, duration: float | None = None
         voice_path=(root / job.inputs.voice).resolve(),
         media_dir=(root / job.inputs.media_dir).resolve(),
         music_path=(root / job.inputs.music).resolve() if job.inputs.music else None,
-        caption_mode=job.captions.mode,
+        particle_overlay_path=(root / job.inputs.particle_overlay).resolve() if job.inputs.particle_overlay else None,
+        caption_mode="srt-and-burn" if job.enhance.is_on("subtitles") else job.captions.mode,
         scenes=scenes,
         outputs=outputs,
         duration=duration,
@@ -88,4 +97,9 @@ def compile_timeline(job: JobSpec, job_path: Path, duration: float | None = None
         duck=job.audio.duck,
         normalize_lufs=job.audio.normalize_lufs,
         voice_pad_seconds=voice_pad_seconds,
+        enhance_tier=job.enhance.tier,
+        enhance_subtitles=job.enhance.is_on("subtitles"),
+        enhance_particles=job.enhance.is_on("particles"),
+        enhance_progress_bar=job.enhance.is_on("progress_bar"),
+        enhance_visualizer=job.enhance.is_on("visualizer"),
     )
