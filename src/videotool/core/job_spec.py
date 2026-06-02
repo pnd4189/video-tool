@@ -47,6 +47,13 @@ class InputSpec(BaseModel):
     # Optional description template (with {{CHAPTERS}}/{{RECAP_PREV}}/{{SUMMARY}} placeholders);
     # when set, package renders outputs/description.txt from it instead of the generic format.
     description_template: Path | None = None
+    # Optional CTA voice clips spliced at the very start / very end of the narration. Their
+    # title-card images (intro_cta_image / outro_cta_image) show while they play; when an image
+    # is unset the first / last storyboard image is held instead.
+    intro_cta: Path | None = None
+    outro_cta: Path | None = None
+    intro_cta_image: Path | None = None
+    outro_cta_image: Path | None = None
 
 
 class OutputSpec(BaseModel):

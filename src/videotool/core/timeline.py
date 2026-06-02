@@ -55,7 +55,17 @@ class Timeline:
     enhance_visualizer: bool = False
 
 
-def compile_timeline(job: JobSpec, job_path: Path, duration: float | None = None) -> Timeline:
+def compile_timeline(
+    job: JobSpec,
+    job_path: Path,
+    duration: float | None = None,
+    *,
+    cta_voice_path: Path | None = None,
+    cta_intro_seconds: float = 0.0,
+    cta_outro_seconds: float = 0.0,
+    cta_intro_image: Path | None = None,
+    cta_outro_image: Path | None = None,
+) -> Timeline:
     root = job_path.parent
     outputs = [
         TimelineOutput(
@@ -75,13 +85,21 @@ def compile_timeline(job: JobSpec, job_path: Path, duration: float | None = None
         )
         for scene in job.storyboard
     ]
+    # CTA title cards bracket the narration scenes: the intro card shows while the intro CTA
+    # plays, the outro card while the outro CTA plays. Image defaults to the first / last scene.
+    if scenes and cta_intro_seconds > 0:
+        intro_img = cta_intro_image.resolve() if cta_intro_image else scenes[0].media_path
+        scenes.insert(0, TimelineScene(scene=0, media_path=intro_img, duration=cta_intro_seconds, motion="slow-push", transition="cut"))
+    if scenes and cta_outro_seconds > 0:
+        outro_img = cta_outro_image.resolve() if cta_outro_image else scenes[-1].media_path
+        scenes.append(TimelineScene(scene=scenes[-1].scene + 1, media_path=outro_img, duration=cta_outro_seconds, motion="slow-push", transition="cut"))
     chapters = [(chapter.start, chapter.title) for chapter in job.project.chapters]
     scenes_total = sum(scene.duration for scene in scenes)
     voice_pad_seconds = max(0.0, scenes_total - duration) if duration else 0.0
     return Timeline(
         title=job.project.title,
         root=root,
-        voice_path=(root / job.inputs.voice).resolve(),
+        voice_path=cta_voice_path.resolve() if cta_voice_path else (root / job.inputs.voice).resolve(),
         media_dir=(root / job.inputs.media_dir).resolve(),
         music_path=(root / job.inputs.music).resolve() if job.inputs.music else None,
         particle_overlay_path=(root / job.inputs.particle_overlay).resolve() if job.inputs.particle_overlay else None,

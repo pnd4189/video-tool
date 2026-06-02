@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from dataclasses import asdict, is_dataclass, replace
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from pathlib import Path
 
 from videotool.ai.align_script import align_script_to_transcript, parse_script
@@ -29,6 +29,7 @@ from videotool.package.youtube import (
     write_description,
 )
 from videotool.render.commands import CommandPlan, build_ffmpeg_command
+from videotool.render.cta_compose import compose_voice, offset_chapters, shift_srt
 from videotool.render.executor import RenderExecutor, RenderResult
 from videotool.render.music_loop import prepare_seamless_music
 from videotool.render.profiles import RenderProfile, get_profile
@@ -65,12 +66,43 @@ def run_probe(job_path: Path) -> dict[str, object]:
     return payload
 
 
+@dataclass(frozen=True)
+class _CtaRender:
+    voice_path: Path
+    intro_seconds: float
+    outro_seconds: float
+    intro_image: Path | None
+    outro_image: Path | None
+
+
+def _stage_voice_cta(job: JobSpec, job_path: Path, workspace_root: Path) -> _CtaRender | None:
+    """Compose narration with optional intro/outro CTA clips into one track in the workspace.
+    Returns None when no CTA is configured (the normal narration voice is used)."""
+    if not job.inputs.intro_cta and not job.inputs.outro_cta:
+        return None
+    root = job_path.parent
+    composed = compose_voice(
+        root / job.inputs.voice,
+        workspace_root / "voice-cta.flac",
+        intro=(root / job.inputs.intro_cta) if job.inputs.intro_cta else None,
+        outro=(root / job.inputs.outro_cta) if job.inputs.outro_cta else None,
+    )
+    return _CtaRender(
+        voice_path=composed.path,
+        intro_seconds=composed.intro_seconds,
+        outro_seconds=composed.outro_seconds,
+        intro_image=(root / job.inputs.intro_cta_image) if job.inputs.intro_cta_image else None,
+        outro_image=(root / job.inputs.outro_cta_image) if job.inputs.outro_cta_image else None,
+    )
+
+
 def _compile_for_render(
     job_path: Path,
     presets: list[str] | None,
     subtitle_path: Path | None,
     music_path: Path | None,
     enhance_tier: str | None = None,
+    cta: _CtaRender | None = None,
 ) -> tuple[Timeline, RenderProfile, list]:
     job = load_job(job_path)
     if enhance_tier is not None:
@@ -81,8 +113,15 @@ def _compile_for_render(
     unknown = selected - available
     if unknown:
         raise ValidationError(f"Requested preset is not in job outputs: {', '.join(sorted(unknown))}")
-    voice_metadata = probe_media(job_path.parent / job.inputs.voice)
-    timeline = compile_timeline(job, job_path, duration=voice_metadata.duration)
+    voice_metadata = probe_media(cta.voice_path if cta else job_path.parent / job.inputs.voice)
+    timeline = compile_timeline(
+        job, job_path, duration=voice_metadata.duration,
+        cta_voice_path=cta.voice_path if cta else None,
+        cta_intro_seconds=cta.intro_seconds if cta else 0.0,
+        cta_outro_seconds=cta.outro_seconds if cta else 0.0,
+        cta_intro_image=cta.intro_image if cta else None,
+        cta_outro_image=cta.outro_image if cta else None,
+    )
     if subtitle_path is not None:
         timeline = replace(timeline, subtitle_path=subtitle_path)
     if music_path is not None:
@@ -100,8 +139,9 @@ def build_render_plans(
     subtitle_path: Path | None = None,
     music_path: Path | None = None,
     enhance_tier: str | None = None,
+    cta: _CtaRender | None = None,
 ) -> list[CommandPlan]:
-    timeline, profile, outputs = _compile_for_render(job_path, presets, subtitle_path, music_path, enhance_tier)
+    timeline, profile, outputs = _compile_for_render(job_path, presets, subtitle_path, music_path, enhance_tier, cta)
     return [build_ffmpeg_command(timeline, profile, output) for output in outputs]
 
 
@@ -113,8 +153,9 @@ def build_segmented_plans(
     *,
     workspace_root: Path,
     enhance_tier: str | None = None,
+    cta: _CtaRender | None = None,
 ) -> list[SegmentedPlan]:
-    timeline, profile, outputs = _compile_for_render(job_path, presets, subtitle_path, music_path, enhance_tier)
+    timeline, profile, outputs = _compile_for_render(job_path, presets, subtitle_path, music_path, enhance_tier, cta)
     # Per-preset clips/concat list: different resolutions can't share concat inputs.
     return [
         build_segmented_render(
@@ -144,20 +185,21 @@ def run_render(
     raise_on_blocking_issues(issues)
     workspace = Workspace(job_path.parent / job.render.temp_dir)
     workspace.prepare()
+    cta = _stage_voice_cta(job, job_path, workspace.root) if not dry_run else None
     subtitle_path = _stage_subtitle(job, job_path, workspace.root) if not dry_run else None
-    music_path = _stage_music(job, job_path, workspace.root) if not dry_run else None
+    music_path = _stage_music(job, job_path, workspace.root, cta) if not dry_run else None
     # Long storyboards render via the resumable clip-per-scene path; small ones keep
     # the single inline xfade filtergraph (preserves true crossfades + existing tests).
     if len(job.storyboard) > job.render.max_inline_scenes:
         segmented_plans = build_segmented_plans(
             job_path, presets, subtitle_path=subtitle_path, music_path=music_path,
-            workspace_root=workspace.root, enhance_tier=enhance_tier,
+            workspace_root=workspace.root, enhance_tier=enhance_tier, cta=cta,
         )
         if dry_run:
             return segmented_plans
         executor = RenderExecutor()
         return [executor.run_segmented(plan, workspace.logs_dir) for plan in segmented_plans]
-    plans = build_render_plans(job_path, presets, subtitle_path=subtitle_path, music_path=music_path, enhance_tier=enhance_tier)
+    plans = build_render_plans(job_path, presets, subtitle_path=subtitle_path, music_path=music_path, enhance_tier=enhance_tier, cta=cta)
     if dry_run:
         return plans
     executor = RenderExecutor()
@@ -178,10 +220,18 @@ def run_transcribe(job_path: Path, model: str, script: Path | None = None) -> Pa
         transcript = align_script_to_transcript(parse_script(script_path), transcript)
     output = job_path.parent / "outputs" / "captions.srt"
     write_srt(transcript, output)
+    # An intro CTA plays before the narration in the final video, so captions + chapters must
+    # shift by its duration. The artifacts stay aligned to the composed timeline produced at render.
+    intro_seconds = 0.0
+    if job.inputs.intro_cta:
+        intro_seconds = probe_media(job_path.parent / job.inputs.intro_cta).duration or 0.0
+    if intro_seconds > 0:
+        output.write_text(shift_srt(output.read_text(encoding="utf-8"), intro_seconds), encoding="utf-8")
     # One whisper pass feeds both captions and YouTube chapters: derive chapter markers from
     # the same aligned transcript. Skip silently when fewer than 3 valid headings are found.
     chapters = derive_chapters(transcript)
     if chapters:
+        chapters = offset_chapters(chapters, intro_seconds)
         chapters_path = job_path.parent / "outputs" / "chapters.json"
         chapters_path.write_text(
             json.dumps([{"start": start, "title": title} for start, title in chapters], ensure_ascii=False, indent=2),
@@ -292,7 +342,7 @@ def _resolve_music_tracks(music_path: Path) -> list[Path]:
     return [music_path]
 
 
-def _stage_music(job: JobSpec, job_path: Path, workspace_root: Path) -> Path | None:
+def _stage_music(job: JobSpec, job_path: Path, workspace_root: Path, cta: _CtaRender | None = None) -> Path | None:
     """Pre-render the music bed to span the full video (voice plus any ending extension)
     with crossfaded seams. Returns the prepared FLAC path so the main render uses it instead
     of the raw music file. Avoids the audible click at every loop boundary when a short music
@@ -305,7 +355,9 @@ def _stage_music(job: JobSpec, job_path: Path, workspace_root: Path) -> Path | N
         return None
     # Cover the whole video: the storyboard can run past the voice (e.g. a 10s ending image).
     scenes_total = sum(scene.duration for scene in job.storyboard)
-    target_duration = max(voice_metadata.duration, scenes_total)
+    # CTA clips extend the final video at both ends; the bed must cover them too.
+    cta_seconds = (cta.intro_seconds + cta.outro_seconds) if cta else 0.0
+    target_duration = max(voice_metadata.duration, scenes_total) + cta_seconds
     tracks = _resolve_music_tracks(job_path.parent / job.inputs.music)
     if not tracks:
         return None

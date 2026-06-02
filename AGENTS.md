@@ -91,9 +91,13 @@ $VT package "$JOB"
 ### Audio-story channel default (e.g. BÌNH THIÊN SÁCH)
 Seed `enhance:{visualizer:true,subtitles:true,progress_bar:false}`; `inputs.script`=`*_vi.txt`,
 `inputs.description_template`=`_DESCRIPTION_TEMPLATE.txt` (needs `{{CHAPTERS}}`/`{{RECAP_PREV}}`/`{{SUMMARY}}`).
-Author `project.recap_previous` (prev tập) + `project.description` (this tập) from vi.txt. Then
-`transcribe "$JOB" --model base` (slow on long audio; emits `chapters.json`) → `render --enhance full`
-→ `package` (renders `description.txt`). Paste it into the YouTube description for native chapters.
+Author `project.recap_previous` (prev tập) + `project.description` (this tập) from vi.txt. CTA: if a
+`CTA voice/` folder exists, set `inputs.intro_cta`/`outro_cta` + `inputs.intro_cta_image`/`outro_cta_image`
+(thumbnail/ending) — tool splices at start/end, holds the card, auto-shifts captions+chapters (adds
+00:00 "Giới thiệu"). Then `transcribe "$JOB" --model "$HOME/.cache/videotool/models/faster-whisper-base"`
+(PATH not bare `base`; slow on long audio; emits `chapters.json`) → `render --preset youtube-16x9`
+(per-feature enhance drives overlays; NOT `--enhance full` — adds particles) → `package` (renders
+`description.txt`). Paste it into the YouTube description for native chapters.
 
 Render Shorts ONLY when the user asks (hint contains "shorts"/"9x16"/"--all"): add
 `{preset: shorts-9x16}` to `outputs:` in job.yaml, then `$VT render "$JOB" --all`.
