@@ -1,5 +1,18 @@
 # Project Changelog
 
+## 2026-05-31 (later)
+
+- Audio-story description+chapters: `transcribe` now derives YouTube chapter timestamps from the aligned transcript (W1) and writes `outputs/chapters.json` (`core/chapter_timing.py`); one whisper pass feeds both subtitles and chapters.
+- Added template-driven description: `inputs.description_template` with `{{CHAPTERS}}`/`{{RECAP_PREV}}`/`{{SUMMARY}}` placeholders; `package` renders `outputs/description.txt` from it (chapters from chapters.json + agent-authored recap/summary). Non-template jobs unchanged.
+- Added `project.recap_previous` field; lowered default `music_gain_db` −28 → −30 dB.
+- Channel default for audio-story (`/make-video`): showwaves + subtitles on, progress bar off; auto-transcribe before render. Suite now 114 passing.
+
+## 2026-05-31
+
+- Added render enhance tiers: `enhance.tier: light|full`, preserving the fast light path while full tier burns SRT subtitles, adds bundled particle/grain overlay, progress bar, and optional waveform visualizer.
+- Added `videotool render --enhance light|full` and optional `inputs.particle_overlay` override; bundled `dust.mp4` overlay source and license notes live under `src/videotool/assets/overlays/`.
+- Verified full-tier smoke render with h264 1920x1080 video and AAC audio; full pytest suite now at 103 passing.
+
 ## 2026-05-20
 
 - Added initial VideoTool V1 implementation: Python package, CLI workflow, job schema, timeline model, asset license metadata, FFmpeg render path, subtitle utilities, silence analysis, GUI queue shell, and YouTube package validator.

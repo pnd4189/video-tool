@@ -10,11 +10,12 @@ $ARGUMENTS
 
 ## Execution rules
 
-1. Inspect the asset folder. Identify the voice file, image files, optional video clips (.mp4/.mov), and music file. Use absolute paths.
-2. Run `init-job`, then patch `job.yaml` to set `assets.policy: allow-missing-local` and `captions.mode: off` (init-job defaults are wrong for our flow — see AGENTS.md Known Pitfalls #1 and #3).
+1. Inspect the asset folder. Identify the voice file, image files, optional video clips (.mp4/.mov), the music folder, intro/ending images, a `*_vi.txt` script, and a `_DESCRIPTION_TEMPLATE.txt`. Use absolute paths.
+2. Run `init-job`, then patch `job.yaml`: `assets.policy: allow-missing-local`, `captions.mode: off`, intro/ending when detected. Channel default = `enhance: {visualizer: true, subtitles: true, progress_bar: false}`. Set `inputs.script` to the `*_vi.txt` and `inputs.description_template` to the `_DESCRIPTION_TEMPLATE.txt` (must hold `{{CHAPTERS}}`/`{{RECAP_PREV}}`/`{{SUMMARY}}`). Author `project.recap_previous` (prev tập) + `project.description` (this tập) from the vi.txt.
 3. Run `storyboard auto` for images. If the folder also contains video clips, append them manually to the storyboard list in `job.yaml` (autogen skips videos — Pitfall #2).
-4. `validate` → `render --all` → `package`.
-5. Report the output mp4 paths, thumbnail path, and a one-line summary (durations, scene count, preset list). Quote any `ffprobe` codec check.
+4. Subtitles are on → if `outputs/captions.srt` is missing, run `transcribe "$JOB" --model base` first (aligns to script, emits `outputs/chapters.json`). Warn it may take minutes on long audio; run automatically.
+5. `validate` → `render --preset youtube-16x9 --enhance full` → `package` (renders `description.txt` from template with chapters + recap + summary). Shorts only if hint asks.
+6. Report mp4 paths, thumbnail, `description.txt`, chapter count, one-line summary. Remind user to paste `description.txt` into the YouTube description for native chapters. Quote any `ffprobe` codec check.
 
 ## When to pause
 

@@ -84,8 +84,16 @@ $VT storyboard auto "$JOB" --images-dir "$JOB_DIR/media"
 # 4. Validate → render → package
 $VT validate "$JOB"
 $VT render "$JOB" --preset youtube-16x9   # default: long-form only, NO Shorts
+# Tier-full overlay jobs: ensure outputs/captions.srt exists, then add --enhance full.
 $VT package "$JOB"
 ```
+
+### Audio-story channel default (e.g. BÌNH THIÊN SÁCH)
+Seed `enhance:{visualizer:true,subtitles:true,progress_bar:false}`; `inputs.script`=`*_vi.txt`,
+`inputs.description_template`=`_DESCRIPTION_TEMPLATE.txt` (needs `{{CHAPTERS}}`/`{{RECAP_PREV}}`/`{{SUMMARY}}`).
+Author `project.recap_previous` (prev tập) + `project.description` (this tập) from vi.txt. Then
+`transcribe "$JOB" --model base` (slow on long audio; emits `chapters.json`) → `render --enhance full`
+→ `package` (renders `description.txt`). Paste it into the YouTube description for native chapters.
 
 Render Shorts ONLY when the user asks (hint contains "shorts"/"9x16"/"--all"): add
 `{preset: shorts-9x16}` to `outputs:` in job.yaml, then `$VT render "$JOB" --all`.
@@ -94,19 +102,21 @@ Outputs land in `$JOB_DIR/outputs/`:
 - `youtube-16x9.mp4` (and `shorts-9x16.mp4` only if Shorts was requested)
 - `thumbnail-1280x720.jpg`, `thumbnail-candidate-0[1-5].jpg`
 - `description.txt`, `license-report.md`, `quality-report.json`, `package-manifest.json`
+- `captions.srt` + `chapters.json` (only when subtitles on / transcribe ran)
 
 ## Known pitfalls (MUST handle)
 
 1. **`init-job` writes `assets.policy: licensed-only`** (`src/videotool/core/job_spec.py:160`). Validation fails without an asset index. ALWAYS rewrite to `allow-missing-local`.
 2. **`storyboard auto` skips video clips** (`src/videotool/core/storyboard.py:149-156` — image extensions only). If the user's `media/` has `.mp4`, append video scenes to job.yaml after autogen.
-3. **`captions.mode: srt-only` is the init default** — produces nothing meaningful unless `outputs/captions.srt` exists. Whisper is intentionally NOT installed; set `mode: off` to avoid surprises.
+3. **`captions.mode: srt-only` is the init default** — set `mode: off` for light jobs (YouTube auto-CC suffices). For audio-story channel jobs, subtitles come via `enhance.subtitles` + `transcribe` (Whisper `base` IS installed now). `enhance.subtitles` forces caption burn regardless of `captions.mode`.
 4. **Music loop preparation** (`src/videotool/core/services.py:227`) only fires when `inputs.music` is set. Always include the music path if there's a music file in the folder.
-5. **Render path branches at 40 scenes** (`render.max_inline_scenes`). >40 → segmented path (resumable, `-c:v copy` at mux). For typical 100+ image audiobooks this is expected. Don't try to force inline.
+5. **Render path branches at 40 scenes** (`render.max_inline_scenes`). >40 → segmented path. Light tier uses `-c:v copy` at mux; full tier re-encodes once for overlays. Don't force inline.
 
 ## Confirmed project decisions (do NOT silently reverse)
 
-- **No waveform / sound-wave overlay.** Would force segmented mux re-encode → ~2x render time. Zoompan motion already defeats YouTube's static detection. *(Decided 2026-05-28.)*
-- **No self-made subtitles / no Whisper.** YouTube auto-CC is enough for audio-story channels. `faster-whisper` is deliberately uninstalled. *(Decided 2026-05-28.)*
+- **Tier light: no waveform / no self-made subtitles.** Zoompan defeats static detection without re-encode; YouTube auto-CC suffices. Stays the default for generic light jobs. *(Decided 2026-05-28; tier-scoped 2026-05-31.)*
+- **Audio-story channel OVERRIDES the two above: showwaves + subtitles ON, progress bar OFF** (whisper `base` runs); **music bed default −30 dB**; **chapters from transcript (W1)** — `transcribe` emits `chapters.json`, no rendered progress bar (Sweezy-style is viewer-side). *(Decided 2026-05-31.)*
+- **Tier full opts into overlays.** `--enhance full` burns existing `outputs/captions.srt`, adds bundled particle/progress/optional waveform, and re-encodes once.
 - **Motion amplitude = 0.30, pan zoom = 1.22** (`src/videotool/render/video_filters.py` `ZOOM_AMPLITUDE` / `PAN_ZOOM`). Bumped up from 0.12 because long-duration images need visible per-second motion. Don't lower without checking with user. *(Decided 2026-05-28.)*
 - **No auto Shorts.** Default render is `youtube-16x9` only; add `shorts-9x16` solely when the
   user asks. `init-job` / `storyboard plan` seed a single long-form preset. *(Decided 2026-05-29.)*
@@ -126,7 +136,7 @@ Bare minimum: a folder path. Optional hints in free text: title, which preset to
 ## Tech notes
 
 - Python 3.12 venv at `.venv/`. Activate via the explicit binary paths above.
-- AI extras (`faster-whisper` + `onnxruntime` + `ctranslate2` + `av`) are deliberately uninstalled.
+- AI extras (`faster-whisper` + deps) ARE installed; `base` model offline at `~/.cache/videotool/models/faster-whisper-base`. Used by `transcribe` for subtitles + chapter timing.
 - FFmpeg is a hard dependency (`apt install ffmpeg`). Encoder default `libx264-balanced`.
 - Key source files:
   - `src/videotool/core/job_spec.py` — pydantic schema

@@ -4,7 +4,9 @@ Single source of truth for what's next, what's deferred, and what's explicitly o
 
 ## Now (next session)
 
-Wait for user to run the tool with real input (TTS voice + real music + storyboard), then react to feedback. Nothing else queued — no proactive feature work until that loop closes.
+Run a real BÌNH THIÊN SÁCH tập end-to-end via `/make-video` (full tier: showwaves + subtitles +
+chapters from transcript + templated description) and react to feedback — especially chapter-timestamp
+drift (W1 ±5–15s) and long-audio whisper time. No other proactive feature work until that loop closes.
 
 ## Deferred (with reason)
 
@@ -13,7 +15,9 @@ These were considered and pushed out. Re-promote only if the reason no longer ho
 | Item | Why deferred | Promote when |
 |------|--------------|--------------|
 | Workspace `.videotool/tmp/` auto-cleanup after successful render | YAGNI — current jobs leave <50MB; only matters at high job volume | User reports disk pressure OR runs >20 jobs without cleanup |
-| Chapter auto-detect from silence gaps | Manual chapters in `job.yaml` are more accurate for audio stories; `detect_silence` already exists if needed | User asks to skip manual chapter authoring |
+| Chapter auto-detect from silence gaps | Superseded: chapters now derived from the aligned transcript (W1) via `transcribe` → `chapters.json` | N/A (done differently) |
+| W2 forced-alignment chapter precision (acoustic match of spoken "Chương N") | W1 (aligned-cue timing, ±5–15s) is free + robust; W2 is fragile on VN ASR mishears | W1 drift proves unacceptable on real uploads |
+| Baked moving-icon progress bar | Sweezy-style bar is viewer-side (Chrome ext), not renderable; YouTube native chapters cover seeking | User wants an in-pixel indicator despite cosmetic-only value |
 | Voice pre-normalization stage (before sidechain) | TTS output usually has consistent volume; sidechain ratio=8 is forgiving | User reports inconsistent ducking on real voice |
 | Two-pass loudnorm (current is single-pass, ±1 LUFS drift possible) | Single-pass hits YouTube target close enough; doubles render time | User reports loudness rejection from YouTube |
 | Loudness verification gate (fail render if measured LUFS off-target) | Package step already measures + reports; failing render is too aggressive | User asks for hard gate |
@@ -33,4 +37,4 @@ These are NOT just deferred — they were ruled out. Do not implement without us
 
 ## Recently shipped (anchor for changelog)
 
-See `docs/project-changelog.md` for the dated record. The roadmap only carries the current cursor.
+Render enhance tiers shipped on 2026-05-31. See `docs/project-changelog.md` for the dated record.
