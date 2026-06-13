@@ -219,10 +219,12 @@ def build_even_split_storyboard(
     rotates through ``motions`` (images only — clips carry their own motion). Paths are emitted
     as-is (the caller relativizes to the job dir).
 
-    ``intro_image`` is prepended as a static ``INTRO_SECONDS`` scene overlaying the start of
-    the voice — the image split base shrinks by ``INTRO_SECONDS`` so total time is unchanged.
-    It is skipped (with a warning) when the voice is too short to host it. ``ending_image`` is
-    appended as a static ``OUTRO_SECONDS`` scene that extends the video past the voice.
+    Both ``intro_image`` and ``ending_image`` overlay the narration (no added time): the intro
+    holds the first ``INTRO_SECONDS`` and the ending the last ``OUTRO_SECONDS``, with the image
+    split base shrinking by each so the storyboard always equals ``voice_duration``. This keeps
+    the ending card flush with the voice end — so when an outro CTA is later spliced on, its
+    title card lines up with the CTA voice instead of lagging behind a tail that runs past it.
+    Each is skipped (with a warning) when the voice is too short to host it.
     """
     images = discover_scene_images(image_dir)
     videos = discover_scene_videos(video_dir) if video_dir is not None else []
@@ -234,19 +236,28 @@ def build_even_split_storyboard(
     if not images and not videos:
         raise ValueError(f"No images or videos found in {image_dir}")
 
+    from videotool.core.logging import console
+
     use_intro = intro_image is not None and voice_duration > INTRO_SECONDS
     if intro_image is not None and not use_intro:
-        from videotool.core.logging import console
-
         console.print(
             f"[yellow]WARNING[/yellow] voice ({voice_duration:.1f}s) too short for a "
             f"{INTRO_SECONDS:.0f}s intro; skipping intro image"
+        )
+    # The ending overlay must fit alongside the intro overlay, so test it against the remainder.
+    remaining_for_ending = voice_duration - (INTRO_SECONDS if use_intro else 0.0)
+    use_ending = ending_image is not None and remaining_for_ending > OUTRO_SECONDS
+    if ending_image is not None and not use_ending:
+        console.print(
+            f"[yellow]WARNING[/yellow] voice ({voice_duration:.1f}s) too short for a "
+            f"{OUTRO_SECONDS:.0f}s ending overlay; skipping ending image"
         )
 
     ordered = interleave_media_by_story_order(images, videos)
     video_durations = {path: _probe_duration(path) for kind, path in ordered if kind == "video"}
 
-    base = voice_duration - (INTRO_SECONDS if use_intro else 0.0)
+    # Both overlays overlay the narration (no added time), so they eat into the image split base.
+    base = voice_duration - (INTRO_SECONDS if use_intro else 0.0) - (OUTRO_SECONDS if use_ending else 0.0)
     # Video clips consume their real length; still images share whatever time is left.
     image_count = sum(1 for kind, _path in ordered if kind == "image")
     video_total = sum(video_durations.values())
@@ -282,7 +293,7 @@ def build_even_split_storyboard(
                 }
             )
             image_index += 1
-    if ending_image is not None:
+    if use_ending:
         scenes.append(_static_scene(ending_image, OUTRO_SECONDS))
 
     for number, scene in enumerate(scenes, start=1):

@@ -47,17 +47,27 @@ def test_motion_rotation_cycles_and_repeats(tmp_path: Path) -> None:
     assert motions[len(MOTION_CYCLE) + 1] == MOTION_CYCLE[1]
 
 
-def test_ending_image_appends_static_outro(tmp_path: Path) -> None:
+def test_ending_image_overlays_end_without_adding_time(tmp_path: Path) -> None:
     for name in ["a1.png", "a2.png"]:
         (tmp_path / name).write_bytes(b"x")
     ending = tmp_path / "end.png"
     ending.write_bytes(b"x")
     scenes = build_even_split_storyboard(tmp_path, 20.0, ending_image=ending)
-    # Two middle images split the full voice; the ending extends the video by OUTRO_SECONDS.
+    # The ending holds the last OUTRO_SECONDS of the voice (no added time) so it stays flush
+    # with the voice end — total equals the voice duration, not voice + OUTRO_SECONDS.
     assert len(scenes) == 3
     assert scenes[-1]["motion"] == "static"
     assert scenes[-1]["duration"] == OUTRO_SECONDS
-    assert abs(sum(s["duration"] for s in scenes) - (20.0 + OUTRO_SECONDS)) < 1e-6
+    assert abs(sum(s["duration"] for s in scenes) - 20.0) < 1e-6
+
+
+def test_ending_skipped_when_voice_too_short(tmp_path: Path, capsys) -> None:
+    (tmp_path / "a1.png").write_bytes(b"x")
+    ending = tmp_path / "end.png"
+    ending.write_bytes(b"x")
+    scenes = build_even_split_storyboard(tmp_path, OUTRO_SECONDS - 1.0, ending_image=ending)
+    assert all(s["motion"] != "static" for s in scenes)
+    assert "too short" in capsys.readouterr().out
 
 
 def test_intro_image_overlays_start_without_adding_time(tmp_path: Path) -> None:

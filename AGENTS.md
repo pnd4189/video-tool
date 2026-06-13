@@ -21,8 +21,9 @@ User points at a folder containing:
   loop to the end of the video.
 - An **intro thumbnail** (no-text template) and an **ending image** may sit anywhere in the
   folder (often a subfolder like `Ảnh end video/`). Detect them and set `inputs.intro_image` /
-  `inputs.ending_image`. Intro overlays the first 10s of the narration (no added time); the
-  ending image extends the video by 10s after the voice ends.
+  `inputs.ending_image`. Intro overlays the FIRST 10s of the narration and the ending overlays
+  the LAST 10s (both no added time) — so the ending card stays flush with the voice end and a
+  spliced outro CTA card lines up with the CTA voice instead of lagging 10s behind.
 - **No** `assets/asset-index.yaml` required — we use `allow-missing-local`
 
 ### Auto-detecting intro / ending images
