@@ -414,7 +414,11 @@ def _validate_used_assets(job: JobSpec, job_path: Path, library: AssetLibrary) -
     if media_dir.exists():
         # Recursive walk: subfolders must not bypass the licensed-only policy.
         used_paths.extend(path.resolve() for path in media_dir.rglob("*") if path.is_file())
-    used_paths.extend((root / scene.image).resolve() for scene in job.storyboard)
+    for scene in job.storyboard:
+        if scene.image:
+            used_paths.append((root / scene.image).resolve())
+        if scene.video:
+            used_paths.append((root / scene.video).resolve())
     if job.inputs.music:
         music_path = (root / job.inputs.music).resolve()
         if music_path.exists():

@@ -77,7 +77,7 @@ def compile_timeline(
     scenes = [
         TimelineScene(
             scene=scene.scene,
-            media_path=(root / scene.image).resolve(),
+            media_path=(root / (scene.video if scene.video else scene.image)).resolve(),
             duration=scene.duration,
             motion=scene.motion,
             transition=scene.transition,

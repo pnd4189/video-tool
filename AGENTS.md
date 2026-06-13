@@ -74,12 +74,10 @@ sed -i \
   "$JOB"
 # If "captions:" block not present after init-job, append: printf '\ncaptions:\n  mode: off\n' >> "$JOB"
 
-# 3a. Auto-storyboard from IMAGES (autogen skips videos)
-$VT storyboard auto "$JOB" --images-dir "$JOB_DIR/media"
-
-# 3b. (IF folder has video clips .mp4/.mov) Append them as scenes manually.
-#     Pick a sensible per-clip duration (or use ffprobe to get the real duration).
-#     Edit "$JOB" YAML to add entries to the storyboard list.
+# 3. Auto-storyboard. Pass --videos-dir to interleave b-roll clips evenly across the
+#    timeline (clips keep their real duration; images split the remaining time). Images
+#    and clips are spread by story order — flexible to whatever count of each survived.
+$VT storyboard auto "$JOB" --images-dir "$JOB_DIR/Image" --videos-dir "$JOB_DIR/Video"
 
 # 4. Validate → render → package
 $VT validate "$JOB"
@@ -93,7 +91,8 @@ Seed `enhance:{visualizer:true,subtitles:true,progress_bar:false}`; `inputs.scri
 `inputs.description_template`=`_DESCRIPTION_TEMPLATE.txt` (needs `{{CHAPTERS}}`/`{{RECAP_PREV}}`/`{{SUMMARY}}`).
 Author `project.recap_previous` (prev tập) + `project.description` (this tập) from vi.txt. CTA: if a
 `CTA voice/` folder exists, set `inputs.intro_cta`/`outro_cta` + `inputs.intro_cta_image`/`outro_cta_image`
-(thumbnail/ending) — tool splices at start/end, holds the card, auto-shifts captions+chapters (adds
+(prefer animated `Intro CTA.mp4`/`Outro CTA.mp4` in that folder if present — tool loops/trims clip to
+voice length; else fall back to thumbnail/ending still) — tool splices at start/end, auto-shifts captions+chapters (adds
 00:00 "Giới thiệu"). Then `transcribe "$JOB" --model "$HOME/.cache/videotool/models/faster-whisper-base"`
 (PATH not bare `base`; slow on long audio; emits `chapters.json`) → `render --preset youtube-16x9`
 (per-feature enhance drives overlays; NOT `--enhance full` — adds particles) → `package` (renders
@@ -111,7 +110,7 @@ Outputs land in `$JOB_DIR/outputs/`:
 ## Known pitfalls (MUST handle)
 
 1. **`init-job` writes `assets.policy: licensed-only`** (`src/videotool/core/job_spec.py:160`). Validation fails without an asset index. ALWAYS rewrite to `allow-missing-local`.
-2. **`storyboard auto` skips video clips** (`src/videotool/core/storyboard.py:149-156` — image extensions only). If the user's `media/` has `.mp4`, append video scenes to job.yaml after autogen.
+2. **`storyboard auto` needs `--videos-dir` to include b-roll clips.** Without it, only images are used. WITH it, clips are interleaved with images by story order (spread across the whole timeline, never bunched) and keep their real duration — pass `--videos-dir "$JOB_DIR/Video"` whenever a Video folder exists. Never drop clips.
 3. **`captions.mode: srt-only` is the init default** — set `mode: off` for light jobs (YouTube auto-CC suffices). For audio-story channel jobs, subtitles come via `enhance.subtitles` + `transcribe` (Whisper `base` IS installed now). `enhance.subtitles` forces caption burn regardless of `captions.mode`.
 4. **Music loop preparation** (`src/videotool/core/services.py:227`) only fires when `inputs.music` is set. Always include the music path if there's a music file in the folder.
 5. **Render path branches at 40 scenes** (`render.max_inline_scenes`). >40 → segmented path. Light tier uses `-c:v copy` at mux; full tier re-encodes once for overlays. Don't force inline.

@@ -74,7 +74,10 @@ class StoryboardSceneSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scene: int = Field(gt=0)
-    image: Path
+    # A scene renders from either a still image (with zoompan motion) or a video clip.
+    # At least one must be set; when both are present the video clip wins (see timeline).
+    image: Path | None = None
+    video: Path | None = None
     duration: float = Field(gt=0)
     motion: Literal[
         "zoom-in",
@@ -89,6 +92,12 @@ class StoryboardSceneSpec(BaseModel):
     ] = "slow-push"
     transition: Literal["cut", "fade", "crossfade", "dip-to-black"] = "crossfade"
     caption: str = ""
+
+    @model_validator(mode="after")
+    def require_media(self) -> "StoryboardSceneSpec":
+        if self.image is None and self.video is None:
+            raise ValueError("Each storyboard scene needs an 'image' or a 'video'.")
+        return self
 
 
 class AudioSpec(BaseModel):

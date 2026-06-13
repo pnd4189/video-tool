@@ -48,11 +48,18 @@ def plan_storyboard(
     console.print(f"Wrote storyboard job with {len(scenes)} scene(s): {output}")
 
 
-def auto_storyboard(job_path: Path, images_dir: Path, voice_duration: float | None = None) -> None:
-    """Generate an even-split storyboard from an images folder + the voice duration and
-    write it into an existing job.yaml, preserving the other keys.
+def auto_storyboard(
+    job_path: Path,
+    images_dir: Path,
+    voice_duration: float | None = None,
+    videos_dir: Path | None = None,
+) -> None:
+    """Generate an even-split storyboard from an images folder (+ optional video-clip folder)
+    and the voice duration, writing it into an existing job.yaml and preserving other keys.
 
-    An existing storyboard block is overwritten with a warning naming its old scene count.
+    Video clips are interleaved with images by story order so b-roll is spread across the whole
+    timeline. An existing storyboard block is overwritten with a warning naming its old scene
+    count.
     """
     job_dir = job_path.parent
     data = yaml.safe_load(job_path.read_text(encoding="utf-8"))
@@ -67,10 +74,15 @@ def auto_storyboard(job_path: Path, images_dir: Path, voice_duration: float | No
     intro_image = _job_input_path(inputs.get("intro_image"), job_dir)
     ending_image = _job_input_path(inputs.get("ending_image"), job_dir)
     scenes = build_even_split_storyboard(
-        images_dir, voice_duration, intro_image=intro_image, ending_image=ending_image
+        images_dir,
+        voice_duration,
+        video_dir=videos_dir,
+        intro_image=intro_image,
+        ending_image=ending_image,
     )
     for scene in scenes:
-        scene["image"] = str(_relative_or_original(Path(scene["image"]), job_dir))
+        key = "video" if "video" in scene else "image"
+        scene[key] = str(_relative_or_original(Path(scene[key]), job_dir))
 
     existing = data.get("storyboard")
     if existing:

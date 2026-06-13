@@ -113,5 +113,6 @@ def storyboard_plan(
 def storyboard_auto(
     job_path: Path,
     images_dir: Path = typer.Option(..., "--images-dir"),
+    videos_dir: Path | None = typer.Option(None, "--videos-dir"),
 ) -> None:
-    auto_storyboard(job_path, images_dir)
+    auto_storyboard(job_path, images_dir, videos_dir=videos_dir)

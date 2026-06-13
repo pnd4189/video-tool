@@ -24,7 +24,11 @@ def validate_job_paths(job: JobSpec, job_path: Path, require_existing: bool = Tr
     for cta_path in (job.inputs.intro_cta, job.inputs.outro_cta, job.inputs.intro_cta_image, job.inputs.outro_cta_image):
         if cta_path:
             candidates.append(root / cta_path)
-    candidates.extend(root / scene.image for scene in job.storyboard)
+    for scene in job.storyboard:
+        if scene.image:
+            candidates.append(root / scene.image)
+        if scene.video:
+            candidates.append(root / scene.video)
     candidates.append(root / job.render.temp_dir)
     for candidate in candidates:
         resolved = candidate.resolve()

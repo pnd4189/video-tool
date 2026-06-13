@@ -135,13 +135,40 @@ def render_description_template(
     summary: str,
 ) -> str:
     """Substitute the three channel placeholders. Literal replace (KISS); missing values
-    collapse to empty so no ``{{...}}`` token is ever left in the output."""
-    return (
+    collapse to empty so no ``{{...}}`` token is ever left in the output.
+
+    A template with NONE of the placeholders is almost always the wrong file (e.g. a previous
+    episode's finished description copied in by mistake) — that would publish stale chapters and
+    the wrong recap, so warn loudly instead of silently emitting it verbatim.
+    """
+    placeholders = ("{{CHAPTERS}}", "{{RECAP_PREV}}", "{{SUMMARY}}")
+    if not any(token in template_text for token in placeholders):
+        from videotool.core.logging import console
+
+        console.print(
+            "[yellow]WARNING[/yellow] description template has none of "
+            f"{', '.join(placeholders)} — emitting it verbatim. Chapters/recap/summary will "
+            "NOT be injected; check inputs.description_template points at the template, not a "
+            "finished description."
+        )
+    rendered = (
         template_text
         .replace("{{CHAPTERS}}", chapters_block)
         .replace("{{RECAP_PREV}}", recap_prev.strip())
         .replace("{{SUMMARY}}", summary.strip())
     )
+    # Any {{...}} left over is an unsupported placeholder (typo or token we don't fill) that
+    # would otherwise leak into the published description — flag it rather than ship it.
+    leftover = re.findall(r"\{\{[^}]+\}\}", rendered)
+    if leftover:
+        from videotool.core.logging import console
+
+        console.print(
+            f"[yellow]WARNING[/yellow] description template has unfilled placeholder(s): "
+            f"{', '.join(sorted(set(leftover)))}. Only {{{{CHAPTERS}}}}, {{{{RECAP_PREV}}}}, "
+            "{{SUMMARY}} are supported — remove or fill the rest by hand."
+        )
+    return rendered
 
 
 def _format_chapter_timestamp(seconds: float) -> str:

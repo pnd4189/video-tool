@@ -10,6 +10,7 @@ from videotool.core.storyboard import (
     OUTRO_SECONDS,
     build_even_split_storyboard,
     discover_scene_images,
+    interleave_media_by_story_order,
     natural_sort_key,
 )
 
@@ -78,6 +79,33 @@ def test_intro_skipped_when_voice_too_short(tmp_path: Path, capsys) -> None:
     scenes = build_even_split_storyboard(tmp_path, INTRO_SECONDS - 1.0, intro_image=intro)
     assert all(s["motion"] != "static" for s in scenes)
     assert "too short" in capsys.readouterr().out
+
+
+def test_interleave_spreads_clips_across_the_whole_order() -> None:
+    images = [Path(f"img{i}.png") for i in range(10)]
+    videos = [Path("v0.mp4"), Path("v1.mp4")]
+    ordered = interleave_media_by_story_order(images, videos)
+    kinds = [kind for kind, _path in ordered]
+    # 12 media total, both clips present, and NOT bunched at the front.
+    assert len(ordered) == 12
+    assert kinds.count("video") == 2
+    video_positions = [i for i, k in enumerate(kinds) if k == "video"]
+    # First clip lands in the first half, second clip in the second half — spread, not adjacent.
+    assert video_positions[0] < 6 <= video_positions[1]
+
+
+def test_interleave_preserves_each_lists_order() -> None:
+    images = [Path("a.png"), Path("b.png"), Path("c.png")]
+    videos = [Path("v1.mp4"), Path("v2.mp4")]
+    ordered = interleave_media_by_story_order(images, videos)
+    assert [p.name for k, p in ordered if k == "image"] == ["a.png", "b.png", "c.png"]
+    assert [p.name for k, p in ordered if k == "video"] == ["v1.mp4", "v2.mp4"]
+
+
+def test_interleave_handles_empty_video_list() -> None:
+    images = [Path("a.png"), Path("b.png")]
+    ordered = interleave_media_by_story_order(images, [])
+    assert [k for k, _ in ordered] == ["image", "image"]
 
 
 def _write_job(job_path: Path) -> None:
