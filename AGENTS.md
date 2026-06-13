@@ -126,6 +126,13 @@ Outputs land in `$JOB_DIR/outputs/`:
   user asks. `init-job` / `storyboard plan` seed a single long-form preset. *(Decided 2026-05-29.)*
 - **No CapCut / external editor.** Tool is self-sufficient via FFmpeg.
 - **Caption mode default for our flow = `off`** (not `srt-only`).
+- **Intro AND ending images both OVERLAY the narration (no added time)** — intro the first 10s,
+  ending the LAST 10s. Keeps the ending card flush with the voice end so a spliced outro CTA
+  card stays in sync with its voice (was "ending extends +10s", which desynced the outro CTA by
+  10s and got -shortest-clipped). *(Decided 2026-06-13.)*
+- **B-roll clips interleave with images by story order** via `storyboard auto --videos-dir`
+  (spread across the whole timeline, never bunched; clips keep real duration). Never drop clips
+  for stills — every chapter has b-roll. *(Decided 2026-06-13.)*
 
 ## Input format the user gives
 
