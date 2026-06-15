@@ -56,13 +56,12 @@ def test_default_tier_is_light_and_features_off() -> None:
     assert spec.tier == "light"
     assert not spec.is_on("subtitles")
     assert not spec.is_on("particles")
-    assert not spec.is_on("progress_bar")
     assert not spec.is_on("visualizer")
 
 
 def test_full_tier_turns_every_feature_on() -> None:
     spec = EnhanceSpec(tier="full")
-    assert all(spec.is_on(name) for name in ("subtitles", "particles", "progress_bar", "visualizer"))
+    assert all(spec.is_on(name) for name in ("subtitles", "particles", "visualizer"))
 
 
 def test_per_feature_override_wins_over_tier() -> None:
@@ -107,7 +106,6 @@ def test_tier_light_default_threads_into_timeline(tmp_path: Path) -> None:
     assert timeline.enhance_tier == "light"
     assert not timeline.enhance_subtitles
     assert not timeline.enhance_particles
-    assert not timeline.enhance_progress_bar
     assert not timeline.enhance_visualizer
 
 

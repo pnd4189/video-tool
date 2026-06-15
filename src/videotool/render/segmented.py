@@ -126,7 +126,8 @@ def _build_mux_command(timeline: Timeline, profile: RenderProfile, output: Timel
 
 
 def _append_particle_input(command: list[str], timeline: Timeline, output: TimelineOutput) -> int | None:
-    if not timeline.enhance_particles:
+    # One overlay input clip serves either the dust particles or the atmosphere screen-blend.
+    if not (timeline.enhance_particles or timeline.enhance_atmosphere):
         return None
     index = sum(1 for arg in command if arg == "-i")
     command.extend(particle_input_args(timeline, output))

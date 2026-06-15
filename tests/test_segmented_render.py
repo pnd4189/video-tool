@@ -148,7 +148,7 @@ def test_full_tier_segmented_mux_reencodes_with_overlay_graph(tmp_path: Path) ->
     assert "[2:a]volume=-30.0dB" in mux
     assert "[3:v]scale=1920:1080" in mux
     assert "subtitles=filename=" in mux
-    assert "drawbox=" in mux
+    assert "drawbox=" not in mux  # progress bar removed from all jobs
     assert "sidechaincompress" in mux
 
 

@@ -88,7 +88,7 @@ $VT package "$JOB"
 ```
 
 ### Audio-story channel default (e.g. BÌNH THIÊN SÁCH)
-Seed `enhance:{visualizer:true,subtitles:true,progress_bar:false}`; `inputs.script`=`*_vi.txt`,
+Seed `enhance:{visualizer:true,subtitles:true}` (progress bar removed from all jobs); `inputs.script`=`*_vi.txt`,
 `inputs.description_template`=`_DESCRIPTION_TEMPLATE.txt` (needs `{{CHAPTERS}}`/`{{RECAP_PREV}}`/`{{SUMMARY}}`).
 Author `project.recap_previous` (prev tập) + `project.description` (this tập) from vi.txt. CTA: if a
 `CTA voice/` folder exists, set `inputs.intro_cta`/`outro_cta` + `inputs.intro_cta_image`/`outro_cta_image`
@@ -141,6 +141,17 @@ Outputs land in `$JOB_DIR/outputs/`:
   and the model loads `local_files_only` to avoid an ~80s HF-Hub stall (first run downloads once).
   DepthFlow rejected for local (pyaudio needs sudo); only in the Colab GPU versions (`/Colab`).
   *(Decided 2026-06-15.)*
+- **Progress bar REMOVED from every job.** The `enhance.progress_bar` key still validates but is
+  a no-op (renders nothing). Sweezy-style progress is viewer-side. *(Decided 2026-06-15.)*
+- **Full-tier "Group A" mood FX (filter-only, free, no assets):** `enhance.mood` ∈
+  `clean/melancholy/cozy/horror/action` expands to vignette/grain/glow/flicker/color-grade.
+  Mood is INDEPENDENT of tier (tier=full alone does NOT enable it); per-effect fields override the
+  mood. Effects ride the single full-tier re-encode (cheap). When `/make-video`, suggest a mood
+  that fits the video and write it into `job.yaml`. *(Decided 2026-06-15.)*
+- **Atmospheric overlay = BYO clip, not bundled.** `enhance.atmosphere: true` blends
+  `inputs.particle_overlay` (user's rain/snow/bokeh loop, black bg) with `screen`. No copyrighted
+  assets in the repo; user supplies the clip (CC0 download or self-rendered Remotion loop, local).
+  Shares the one overlay input slot with `particles` (particles wins if both on). *(Decided 2026-06-15.)*
 
 ## Input format the user gives
 

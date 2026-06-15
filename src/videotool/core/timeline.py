@@ -51,8 +51,14 @@ class Timeline:
     enhance_tier: str = "light"
     enhance_subtitles: bool = False
     enhance_particles: bool = False
-    enhance_progress_bar: bool = False
     enhance_visualizer: bool = False
+    # Group A filter effects (mood-resolved) + atmospheric overlay blend.
+    enhance_vignette: bool = False
+    enhance_grain: bool = False
+    enhance_glow: bool = False
+    enhance_flicker: bool = False
+    enhance_atmosphere: bool = False
+    enhance_color_grade: str | None = None
 
 
 def compile_timeline(
@@ -118,6 +124,11 @@ def compile_timeline(
         enhance_tier=job.enhance.tier,
         enhance_subtitles=job.enhance.is_on("subtitles"),
         enhance_particles=job.enhance.is_on("particles"),
-        enhance_progress_bar=job.enhance.is_on("progress_bar"),
         enhance_visualizer=job.enhance.is_on("visualizer"),
+        enhance_vignette=job.enhance.effect_on("vignette"),
+        enhance_grain=job.enhance.effect_on("grain"),
+        enhance_glow=job.enhance.effect_on("glow"),
+        enhance_flicker=job.enhance.effect_on("flicker"),
+        enhance_atmosphere=job.enhance.atmosphere,
+        enhance_color_grade=job.enhance.resolved_color_grade(),
     )

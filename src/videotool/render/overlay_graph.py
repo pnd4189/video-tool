@@ -22,6 +22,28 @@ def build_video_overlay(
     if caption:
         current = _append(filters, current, f"{caption},format=yuv420p", "vsub")
 
+    # Group A: filter-only mood effects (no assets). Cheap, ride the single full-tier re-encode.
+    grade = _color_grade_filter(timeline.enhance_color_grade)
+    if grade:
+        current = _append(filters, current, grade, "vgrade")
+    if timeline.enhance_vignette:
+        current = _append(filters, current, "vignette=PI/5", "vvig")
+    if timeline.enhance_grain:
+        current = _append(filters, current, "noise=alls=10:allf=t", "vgrain")
+    if timeline.enhance_glow:
+        # self-contained bloom: blur a brightened copy and screen it back over the original
+        filters.append(
+            f"[{current}]split=2[g0][g1];[g1]gblur=sigma=14,eq=brightness=0.05[g2];"
+            f"[g0][g2]blend=all_mode=screen,format=yuv420p[vglow]"
+        )
+        current = "vglow"
+    if timeline.enhance_flicker:
+        current = _append(
+            filters, current,
+            "eq=brightness='0.03*sin(2*PI*t*3)':eval=frame",
+            "vflick",
+        )
+
     if timeline.enhance_particles and particle_input_idx is not None:
         particle = "vparticle_src"
         filters.append(
@@ -33,15 +55,17 @@ def build_video_overlay(
         next_label = "vparticle"
         filters.append(f"[{current}][{particle}]overlay=shortest=1,format=yuv420p[{next_label}]")
         current = next_label
-
-    if timeline.enhance_progress_bar:
-        duration = _duration(timeline)
-        current = _append(
-            filters,
-            current,
-            f"drawbox=x=0:y=ih-10:w=iw*t/{duration:.3f}:h=10:color=white@0.65:t=fill",
-            "vprogress",
+    elif timeline.enhance_atmosphere and particle_input_idx is not None:
+        # BYO atmospheric clip (rain/snow/bokeh) blended screen at its own brightness.
+        atmo = "vatmo_src"
+        filters.append(
+            f"[{particle_input_idx}:v]scale={output.preset.width}:{output.preset.height}:"
+            f"force_original_aspect_ratio=increase,"
+            f"crop={output.preset.width}:{output.preset.height},format=yuv420p[{atmo}]"
         )
+        next_label = "vatmo"
+        filters.append(f"[{current}][{atmo}]blend=all_mode=screen:shortest=1,format=yuv420p[{next_label}]")
+        current = next_label
 
     if timeline.enhance_visualizer and audio_label:
         wave = "vwaves"
@@ -65,10 +89,25 @@ def needs_video_overlay(timeline: Timeline) -> bool:
         (
             timeline.enhance_subtitles,
             timeline.enhance_particles,
-            timeline.enhance_progress_bar,
+            timeline.enhance_atmosphere,
             timeline.enhance_visualizer,
+            timeline.enhance_vignette,
+            timeline.enhance_grain,
+            timeline.enhance_glow,
+            timeline.enhance_flicker,
+            bool(timeline.enhance_color_grade),
         )
     )
+
+
+def _color_grade_filter(grade: str | None) -> str:
+    if grade == "warm":
+        return "colorbalance=rs=.06:gs=.02:bs=-.06"
+    if grade == "cold":
+        return "colorbalance=rs=-.06:gs=0:bs=.06"
+    if grade == "neutral":
+        return "eq=contrast=1.08:saturation=1.06"
+    return ""
 
 
 def caption_filter(timeline: Timeline, output: TimelineOutput) -> str:
@@ -107,13 +146,6 @@ def _bundled_particle_overlay() -> Path:
 def _append(filters: list[str], label_in: str, body: str, label_out: str) -> str:
     filters.append(f"[{label_in}]{body}[{label_out}]")
     return label_out
-
-
-def _duration(timeline: Timeline) -> float:
-    if timeline.duration and timeline.duration > 0:
-        return timeline.duration
-    scene_duration = sum(scene.duration for scene in timeline.scenes)
-    return scene_duration if scene_duration > 0 else 1.0
 
 
 def _escape_filter_value(path: Path) -> str:

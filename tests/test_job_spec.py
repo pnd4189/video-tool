@@ -89,7 +89,7 @@ def test_enhance_unknown_key_rejected() -> None:
                 "version": 1,
                 "project": {"title": "bad-enhance"},
                 "inputs": {"voice": "voice.wav"},
-                "enhance": {"tier": "full", "glow": True},
+                "enhance": {"tier": "full", "no_such_effect": True},
             }
         )
 

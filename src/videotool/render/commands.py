@@ -188,7 +188,8 @@ def _xfade_name(transition: str) -> str:
 
 
 def _append_particle_input(command: list[str], timeline: Timeline, output: TimelineOutput) -> int | None:
-    if not timeline.enhance_particles:
+    # One overlay input clip serves either the dust particles or the atmosphere screen-blend.
+    if not (timeline.enhance_particles or timeline.enhance_atmosphere):
         return None
     index = _next_input_index(command)
     command.extend(particle_input_args(timeline, output))

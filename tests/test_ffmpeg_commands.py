@@ -151,7 +151,7 @@ assets:
     plan = build_ffmpeg_command(timeline, get_profile("libx264-fast"), timeline.outputs[0])
     command = " ".join(plan.command)
     assert "subtitles=filename=" in command
-    assert "drawbox=" in command
+    assert "drawbox=" not in command  # progress bar removed from all jobs
     assert "dust.mp4" in command
     assert "-map [vfull]" in command
 

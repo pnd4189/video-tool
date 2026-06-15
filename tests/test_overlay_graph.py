@@ -28,7 +28,6 @@ def _timeline(**overrides: object) -> Timeline:
         "enhance_tier": "full",
         "enhance_subtitles": True,
         "enhance_particles": True,
-        "enhance_progress_bar": True,
         "enhance_visualizer": True,
     }
     values.update(overrides)
@@ -38,10 +37,37 @@ def _timeline(**overrides: object) -> Timeline:
 def test_full_overlay_graph_layers_in_order() -> None:
     graph = build_video_overlay("vbase", "v", _timeline(), _output(), particle_input_idx=3, audio_label="voiceviz")
 
-    assert graph.index("subtitles=") < graph.index("overlay=shortest=1") < graph.index("drawbox=")
-    assert graph.index("drawbox=") < graph.index("showwaves=")
+    # Progress bar removed; order is now subtitles -> particles -> visualizer.
+    assert graph.index("subtitles=") < graph.index("overlay=shortest=1") < graph.index("showwaves=")
+    assert "drawbox=" not in graph
     assert "eof_action=pass" in graph
     assert "[v]" in graph
+
+
+def test_group_a_effects_apply_when_enabled() -> None:
+    graph = build_video_overlay(
+        "vbase", "v",
+        _timeline(
+            enhance_subtitles=False, enhance_particles=False, enhance_visualizer=False,
+            enhance_vignette=True, enhance_grain=True, enhance_glow=True,
+            enhance_flicker=True, enhance_color_grade="warm",
+        ),
+        _output(), particle_input_idx=None, audio_label=None,
+    )
+    assert "colorbalance=" in graph and "vignette=" in graph
+    assert "noise=" in graph and "blend=all_mode=screen" in graph and "sin(2*PI*t" in graph
+
+
+def test_atmosphere_blends_overlay_clip_screen() -> None:
+    graph = build_video_overlay(
+        "vbase", "v",
+        _timeline(
+            enhance_subtitles=False, enhance_particles=False, enhance_visualizer=False,
+            enhance_atmosphere=True,
+        ),
+        _output(), particle_input_idx=3, audio_label=None,
+    )
+    assert "[3:v]scale=" in graph and "blend=all_mode=screen:shortest=1" in graph
 
 
 def test_overlay_graph_passthrough_when_layers_off() -> None:
@@ -52,7 +78,6 @@ def test_overlay_graph_passthrough_when_layers_off() -> None:
             caption_mode="off",
             enhance_subtitles=False,
             enhance_particles=False,
-            enhance_progress_bar=False,
             enhance_visualizer=False,
         ),
         _output(),

@@ -117,24 +117,47 @@ class CaptionSpec(BaseModel):
     mode: Literal["off", "srt-only", "srt-and-burn"] = "srt-only"
 
 
-# Overlay features the "full" tier turns on. Each has a per-feature override on EnhanceSpec.
-ENHANCE_FEATURES = ("subtitles", "particles", "progress_bar", "visualizer")
+# Tier-driven overlay features: when the per-feature override is None they follow tier=full.
+ENHANCE_FEATURES = ("subtitles", "particles", "visualizer")
+
+# Mood presets expand to a set of filter-only "Group A" effects (no assets needed).
+# value None for color_grade means "no grade". Effects are bool on/off.
+MOODS: dict[str, dict[str, object]] = {
+    "clean": {"vignette": True, "grain": True, "glow": False, "flicker": False, "color_grade": "warm"},
+    "melancholy": {"vignette": True, "grain": True, "glow": False, "flicker": False, "color_grade": "cold"},
+    "cozy": {"vignette": True, "grain": False, "glow": True, "flicker": False, "color_grade": "warm"},
+    "horror": {"vignette": True, "grain": True, "glow": True, "flicker": False, "color_grade": "cold"},
+    "action": {"vignette": False, "grain": True, "glow": False, "flicker": True, "color_grade": "neutral"},
+}
+GROUP_A_EFFECTS = ("vignette", "grain", "glow", "flicker")
 
 
 class EnhanceSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # Master switch. light = current fast path (zoompan + concat-BGM, segmented `-c:v copy`).
-    # full = overlay package re-encoded once (subtitles/particles/progress bar/visualizer).
+    # full = overlay package re-encoded once (subtitles/particles/visualizer + Group A FX).
     tier: Literal["light", "full"] = "light"
     # Per-feature overrides: None follows the tier; a bool forces the feature on/off.
     subtitles: bool | None = None
     particles: bool | None = None
-    progress_bar: bool | None = None
     visualizer: bool | None = None
+    # Deprecated no-op: progress bar was removed from all jobs (Sweezy-style is viewer-side).
+    # Kept accepted so older job.yaml with this key still validates; it renders nothing.
+    progress_bar: bool | None = None
     # Depth-based 2.5D parallax on still scenes. Independent of tier (expensive + offline):
     # it is OFF unless explicitly set true, so tier=full never silently enables it.
     parallax: bool = False
+    # Mood preset → Group A filter effects. None = no mood. Per-effect fields below override it.
+    mood: Literal["clean", "melancholy", "cozy", "horror", "action"] | None = None
+    vignette: bool | None = None
+    grain: bool | None = None
+    glow: bool | None = None
+    flicker: bool | None = None
+    color_grade: Literal["warm", "cold", "neutral"] | None = None
+    # Atmospheric overlay (rain/snow/bokeh): blends inputs.particle_overlay with screen mode.
+    # User supplies the clip; nothing is bundled. Independent of mood.
+    atmosphere: bool = False
 
     def is_on(self, feature: str) -> bool:
         """Resolve a single overlay feature: explicit override wins, else follow the tier."""
@@ -144,6 +167,25 @@ class EnhanceSpec(BaseModel):
         if override is not None:
             return override
         return self.tier == "full"
+
+    def effect_on(self, name: str) -> bool:
+        """Resolve a Group A effect: explicit field wins, else the mood preset, else off."""
+        if name not in GROUP_A_EFFECTS:
+            raise ValueError(f"Unknown effect '{name}'. Expected one of: {', '.join(GROUP_A_EFFECTS)}")
+        override = getattr(self, name)
+        if override is not None:
+            return override
+        if self.mood:
+            return bool(MOODS[self.mood][name])
+        return False
+
+    def resolved_color_grade(self) -> str | None:
+        """Grade value: explicit field wins, else the mood's grade, else None (no grade)."""
+        if self.color_grade is not None:
+            return self.color_grade
+        if self.mood:
+            return MOODS[self.mood]["color_grade"]  # type: ignore[return-value]
+        return None
 
 
 class AssetPolicySpec(BaseModel):
