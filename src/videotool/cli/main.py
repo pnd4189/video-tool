@@ -35,6 +35,18 @@ def init_job(
 
 
 @app.command()
+def parallax(
+    image: Path,
+    out: Path,
+    duration: float = typer.Option(6.0, "--duration"),
+    fps: int = typer.Option(30, "--fps"),
+    width: int = typer.Option(1920, "--width"),
+    height: int = typer.Option(1080, "--height"),
+) -> None:
+    raise typer.Exit(commands.parallax(image, out, duration, fps, width, height))
+
+
+@app.command()
 def validate(job_path: Path, json_output: bool = typer.Option(False, "--json")) -> None:
     raise typer.Exit(commands.validate(job_path, json_output=json_output))
 

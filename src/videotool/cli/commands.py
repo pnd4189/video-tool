@@ -29,10 +29,13 @@ def doctor(json_output: bool = False) -> None:
     import shutil
     import sys
 
+    from videotool.render.parallax import parallax_available
+
     payload = {
         "python": sys.version.split()[0],
         "ffmpeg": bool(shutil.which("ffmpeg")),
         "ffprobe": bool(shutil.which("ffprobe")),
+        "parallax_extra": parallax_available(),
     }
     if json_output:
         print(to_json(payload))
@@ -45,6 +48,18 @@ def doctor(json_output: bool = False) -> None:
 
 def init_job(job_dir: Path, voice: str, media: str, music: str | None) -> None:
     console.print(f"Created {run_init_job(job_dir, voice, media, music)}")
+
+
+def parallax(image: Path, out: Path, duration: float, fps: int, width: int, height: int) -> int:
+    """Render one depth-parallax clip from a single still (for testing the effect)."""
+    from videotool.render.parallax import PARALLAX_MISSING_MSG, parallax_available, render_parallax_clip
+
+    if not parallax_available():
+        console.print(f"[red]MISSING DEPENDENCY[/red] {PARALLAX_MISSING_MSG}")
+        return DEPENDENCY_ERROR
+    render_parallax_clip(image, duration, fps, width, height, out)
+    console.print(out)
+    return 0
 
 
 def validate(job_path: Path, json_output: bool = False) -> int:

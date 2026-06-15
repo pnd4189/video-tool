@@ -132,6 +132,9 @@ class EnhanceSpec(BaseModel):
     particles: bool | None = None
     progress_bar: bool | None = None
     visualizer: bool | None = None
+    # Depth-based 2.5D parallax on still scenes. Independent of tier (expensive + offline):
+    # it is OFF unless explicitly set true, so tier=full never silently enables it.
+    parallax: bool = False
 
     def is_on(self, feature: str) -> bool:
         """Resolve a single overlay feature: explicit override wins, else follow the tier."""

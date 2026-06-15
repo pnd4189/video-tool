@@ -133,6 +133,14 @@ Outputs land in `$JOB_DIR/outputs/`:
 - **B-roll clips interleave with images by story order** via `storyboard auto --videos-dir`
   (spread across the whole timeline, never bunched; clips keep real duration). Never drop clips
   for stills — every chapter has b-roll. *(Decided 2026-06-13.)*
+- **2.5D parallax = opt-in via `enhance.parallax: true`** (independent of tier; tier=full does
+  NOT enable it). Stills become depth-parallax clips (DepthAnything V2-Small + numpy inverse-warp,
+  CPU/offline) cached under `<job>/.videotool/parallax-cache`. A scene whose depth fails falls
+  back to Ken Burns. Needs the `parallax` extra; on a no-GPU box install the **CPU torch build**
+  (`pip install torch --index-url https://download.pytorch.org/whl/cpu` then `pip install -e .[parallax]`)
+  and the model loads `local_files_only` to avoid an ~80s HF-Hub stall (first run downloads once).
+  DepthFlow rejected for local (pyaudio needs sudo); only in the Colab GPU versions (`/Colab`).
+  *(Decided 2026-06-15.)*
 
 ## Input format the user gives
 

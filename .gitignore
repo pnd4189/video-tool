@@ -19,3 +19,6 @@ models/
 *.ckpt
 *.pt
 *.bin
+
+# Local html-video tool state (binary assets, not part of this repo)
+.html-video/

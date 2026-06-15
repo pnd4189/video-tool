@@ -103,6 +103,7 @@ def _compile_for_render(
     music_path: Path | None,
     enhance_tier: str | None = None,
     cta: _CtaRender | None = None,
+    materialize_parallax: bool = False,
 ) -> tuple[Timeline, RenderProfile, list]:
     job = load_job(job_path)
     if enhance_tier is not None:
@@ -130,6 +131,16 @@ def _compile_for_render(
     outputs = [output for output in timeline.outputs if output.preset.name in selected]
     if not outputs:
         raise ValidationError("No render presets selected.")
+    # Swap still scenes for depth-parallax clips (rendered once at the first selected preset;
+    # scene_filter rescales them for any other preset). Skipped on dry-run via the caller flag.
+    if materialize_parallax and job.enhance.parallax:
+        from videotool.render.parallax import parallaxize_timeline
+
+        timeline = parallaxize_timeline(
+            timeline,
+            cache_dir=job_path.parent / ".videotool" / "parallax-cache",
+            preset=outputs[0].preset,
+        )
     return timeline, profile, outputs
 
 
@@ -140,8 +151,11 @@ def build_render_plans(
     music_path: Path | None = None,
     enhance_tier: str | None = None,
     cta: _CtaRender | None = None,
+    materialize_parallax: bool = False,
 ) -> list[CommandPlan]:
-    timeline, profile, outputs = _compile_for_render(job_path, presets, subtitle_path, music_path, enhance_tier, cta)
+    timeline, profile, outputs = _compile_for_render(
+        job_path, presets, subtitle_path, music_path, enhance_tier, cta, materialize_parallax
+    )
     return [build_ffmpeg_command(timeline, profile, output) for output in outputs]
 
 
@@ -154,8 +168,11 @@ def build_segmented_plans(
     workspace_root: Path,
     enhance_tier: str | None = None,
     cta: _CtaRender | None = None,
+    materialize_parallax: bool = False,
 ) -> list[SegmentedPlan]:
-    timeline, profile, outputs = _compile_for_render(job_path, presets, subtitle_path, music_path, enhance_tier, cta)
+    timeline, profile, outputs = _compile_for_render(
+        job_path, presets, subtitle_path, music_path, enhance_tier, cta, materialize_parallax
+    )
     # Per-preset clips/concat list: different resolutions can't share concat inputs.
     return [
         build_segmented_render(
@@ -188,18 +205,24 @@ def run_render(
     cta = _stage_voice_cta(job, job_path, workspace.root) if not dry_run else None
     subtitle_path = _stage_subtitle(job, job_path, workspace.root) if not dry_run else None
     music_path = _stage_music(job, job_path, workspace.root, cta) if not dry_run else None
+    # Materialize parallax clips only for a real render (not dry-run: clip rendering is costly).
+    materialize_parallax = not dry_run
     # Long storyboards render via the resumable clip-per-scene path; small ones keep
     # the single inline xfade filtergraph (preserves true crossfades + existing tests).
     if len(job.storyboard) > job.render.max_inline_scenes:
         segmented_plans = build_segmented_plans(
             job_path, presets, subtitle_path=subtitle_path, music_path=music_path,
             workspace_root=workspace.root, enhance_tier=enhance_tier, cta=cta,
+            materialize_parallax=materialize_parallax,
         )
         if dry_run:
             return segmented_plans
         executor = RenderExecutor()
         return [executor.run_segmented(plan, workspace.logs_dir) for plan in segmented_plans]
-    plans = build_render_plans(job_path, presets, subtitle_path=subtitle_path, music_path=music_path, enhance_tier=enhance_tier, cta=cta)
+    plans = build_render_plans(
+        job_path, presets, subtitle_path=subtitle_path, music_path=music_path,
+        enhance_tier=enhance_tier, cta=cta, materialize_parallax=materialize_parallax,
+    )
     if dry_run:
         return plans
     executor = RenderExecutor()
