@@ -32,6 +32,18 @@ matching `*end*` / `outro` / "ảnh end" → ending image. If absent or genuinel
 (several equally-likely candidates), SKIP that image, render normally, and note the skip in the
 final report. Never block on it.
 
+### Scan & advise FX / mood (do this every job, right after init-job)
+Before rendering, read the story to pick effects — the LLM agent is the classifier, no code:
+read the first ~300 words of `*_vi.txt` + skim `*_image_prompts.txt` + glance at 1–2
+`Image/scene_*.jpg`. Infer a `mood` (clean/melancholy/cozy/horror/action) and, if the scene
+suggests weather/atmosphere, an overlay from `~/.cache/videotool/overlays/` (mood map in the
+"Atmospheric overlay" decision). Then print ONE proposal line and let the user decide, e.g.:
+`Đề xuất: mood=melancholy + atmosphere=rain-fx-011 (truyện bi, tông mưa hợp). Bật full FX? [y / sửa]`.
+- User confirms full → write `enhance.tier: full` (or per-feature) + `enhance.mood` +
+  `enhance.atmosphere: true` + `inputs.particle_overlay` into job.yaml. `parallax` only if asked (expensive).
+- User silent / mood unclear / generic light job → default light (no mood/atmosphere); note it and move on.
+Never block the pipeline waiting on this — propose once, proceed with the default if no answer.
+
 ## When assets live on gdrive (rclone mount)
 
 If the folder path is on a gdrive mount (e.g. under `/home/dung/cloud/gdrive/...`), stage it
