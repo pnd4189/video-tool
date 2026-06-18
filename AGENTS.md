@@ -148,10 +148,18 @@ Outputs land in `$JOB_DIR/outputs/`:
   Mood is INDEPENDENT of tier (tier=full alone does NOT enable it); per-effect fields override the
   mood. Effects ride the single full-tier re-encode (cheap). When `/make-video`, suggest a mood
   that fits the video and write it into `job.yaml`. *(Decided 2026-06-15.)*
-- **Atmospheric overlay = BYO clip, not bundled.** `enhance.atmosphere: true` blends
-  `inputs.particle_overlay` (user's rain/snow/bokeh loop, black bg) with `screen`. No copyrighted
-  assets in the repo; user supplies the clip (CC0 download or self-rendered Remotion loop, local).
-  Shares the one overlay input slot with `particles` (particles wins if both on). *(Decided 2026-06-15.)*
+- **Atmospheric overlay = pick from local CC0 library.** `enhance.atmosphere: true` blends
+  `inputs.particle_overlay` (rain/snow/fire/smoke/etc. loop, black bg) with `screen`. A local CC0
+  library (ForFilmCreation + FX Elements, all converted to 4K H264 yuv420p, black-bg or
+  alpha-flattened-on-black) lives at `~/.cache/videotool/overlays/`, files named
+  `{kind}-{src}-{id}.mp4` (`rain-* snow-* fire-* smoke-* particles-* dust-* cosmos-*`). When the
+  user wants full FX, **suggest** the overlay that fits the video (read the story/scene mood first)
+  and set `inputs.particle_overlay` to it (melancholy→`rain-*`, winter/cozy→`snow-*`,
+  action/horror→`fire-*`/`smoke-*`, mystical/dreamy→`smoke-*`/`particles-*`/`cosmos-*`, old-film→`dust-*`)
+  + `enhance.atmosphere: true`. One overlay slot per video; `particles` wins if both on. Masters stay
+  on gdrive (`KHÁC/HIỆU ỨNG VIDEO/`); nothing copyrighted lives in the repo. Re-stage the library
+  with `rclone` if the cache is cleared. Screen-blends (atmosphere + glow) run in `gbrp` (RGB) —
+  blending in yuv420p tints the whole frame magenta; do NOT revert. *(Library + blend fix 2026-06-18.)*
 
 ## Input format the user gives
 

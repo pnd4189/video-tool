@@ -31,10 +31,14 @@ def build_video_overlay(
     if timeline.enhance_grain:
         current = _append(filters, current, "noise=alls=10:allf=t", "vgrain")
     if timeline.enhance_glow:
-        # self-contained bloom: blur a brightened copy and screen it back over the original
+        # Self-contained bloom: blur a brightened copy and screen it back over the
+        # original. The screen blend runs in RGB; blending in yuv420p would screen
+        # the chroma planes too and tint the whole frame magenta.
         filters.append(
-            f"[{current}]split=2[g0][g1];[g1]gblur=sigma=14,eq=brightness=0.05[g2];"
-            f"[g0][g2]blend=all_mode=screen,format=yuv420p[vglow]"
+            f"[{current}]split=2[g0][g1];"
+            f"[g1]gblur=sigma=14,eq=brightness=0.05,format=gbrp[g2];"
+            f"[g0]format=gbrp[g0r];"
+            f"[g0r][g2]blend=all_mode=screen,format=yuv420p[vglow]"
         )
         current = "vglow"
     if timeline.enhance_flicker:
@@ -57,14 +61,18 @@ def build_video_overlay(
         current = next_label
     elif timeline.enhance_atmosphere and particle_input_idx is not None:
         # BYO atmospheric clip (rain/snow/bokeh) blended screen at its own brightness.
+        # Screen blend must run in RGB; blending in yuv420p screens the chroma
+        # planes too and tints the whole frame magenta.
         atmo = "vatmo_src"
+        atmo_base = "vatmo_base"
         filters.append(
             f"[{particle_input_idx}:v]scale={output.preset.width}:{output.preset.height}:"
             f"force_original_aspect_ratio=increase,"
-            f"crop={output.preset.width}:{output.preset.height},format=yuv420p[{atmo}]"
+            f"crop={output.preset.width}:{output.preset.height},format=gbrp[{atmo}]"
         )
         next_label = "vatmo"
-        filters.append(f"[{current}][{atmo}]blend=all_mode=screen:shortest=1,format=yuv420p[{next_label}]")
+        filters.append(f"[{current}]format=gbrp[{atmo_base}]")
+        filters.append(f"[{atmo_base}][{atmo}]blend=all_mode=screen:shortest=1,format=yuv420p[{next_label}]")
         current = next_label
 
     if timeline.enhance_visualizer and audio_label:
