@@ -172,6 +172,14 @@ Outputs land in `$JOB_DIR/outputs/`:
   on gdrive (`KHÁC/HIỆU ỨNG VIDEO/`); nothing copyrighted lives in the repo. Re-stage the library
   with `rclone` if the cache is cleared. Screen-blends (atmosphere + glow) run in `gbrp` (RGB) —
   blending in yuv420p tints the whole frame magenta; do NOT revert. *(Library + blend fix 2026-06-18.)*
+- **Colab DepthFlow 2.5D = separate `/parallax-video` command (NOT `enhance.parallax`).** GPU-offload
+  path: Colab `Colab/v4_depthflow_clips_colab.py` renders one loopable 1080p clip per still →
+  `Parallax/<image-stem>.mp4` (manual download + upload beside the asset folder). `/parallax-video`
+  runs the same pipeline as `/make-video` plus `videotool parallax-link "$JOB" --clips-dir Parallax`,
+  which swaps each image scene for its matching clip at the data layer (job.yaml); a still with no
+  matching clip stays Ken Burns. Render needs no torch — it just loop+trims the clip. Distinct from
+  the local-numpy `enhance.parallax` (2026-06-15), which stays as-is; `/make-video` untouched.
+  *(Added 2026-06-18.)*
 
 ## Input format the user gives
 

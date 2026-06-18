@@ -1,5 +1,11 @@
 # Project Changelog
 
+## 2026-06-18
+
+- Added Colab-offload 2.5D parallax path: new `/parallax-video` command + `videotool parallax-link <job> --clips-dir Parallax`, which swaps each image scene for a matching `Parallax/<image-stem>.mp4` clip at the data layer (missing clip → stays Ken Burns still). Render reuses the existing video loop+trim — no render-code change, no local torch. Distinct from the local-numpy `enhance.parallax`.
+- Added `Colab/v4_depthflow_clips_colab.py`: DepthFlow GPU renders one loopable 1080p clip per still (clips-only, named by image stem) for manual transport into `Parallax/`.
+- Fixed atmosphere/glow screen-blends to run in RGB (`gbrp`) — yuv420p blending tinted the whole frame magenta. Added local CC0 overlay library at `~/.cache/videotool/overlays/`. Suite now 149 passing.
+
 ## 2026-05-31 (later)
 
 - Audio-story description+chapters: `transcribe` now derives YouTube chapter timestamps from the aligned transcript (W1) and writes `outputs/chapters.json` (`core/chapter_timing.py`); one whisper pass feeds both subtitles and chapters.

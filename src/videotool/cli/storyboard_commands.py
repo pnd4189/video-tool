@@ -7,6 +7,7 @@ import yaml
 from videotool.core.job_spec import JobSpec
 from videotool.core.logging import console
 from videotool.core.media_probe import probe_media
+from videotool.core.parallax_link import link_parallax_clips
 from videotool.core.storyboard import build_even_split_storyboard, build_storyboard
 
 
@@ -93,6 +94,29 @@ def auto_storyboard(
     JobSpec.model_validate(data)
     job_path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
     console.print(f"Wrote {len(scenes)} scene(s) to {job_path}")
+
+
+def link_parallax(job_path: Path, clips_dir: Path) -> dict[str, int]:
+    """Swap image scenes for matching parallax clips in ``clips_dir`` and rewrite job.yaml.
+
+    ``clips_dir`` resolves relative to the job dir when not absolute. Returns swap counts.
+    """
+    job_dir = job_path.parent
+    resolved = clips_dir if clips_dir.is_absolute() else (job_dir / clips_dir)
+    if not resolved.is_dir():
+        raise ValueError(f"Clips dir not found: {resolved}")
+    data = yaml.safe_load(job_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or "storyboard" not in data:
+        raise ValueError(f"Job file has no storyboard to link: {job_path}")
+    scenes, counts = link_parallax_clips(data["storyboard"], resolved, job_dir)
+    data["storyboard"] = scenes
+    JobSpec.model_validate(data)
+    job_path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    console.print(
+        f"Linked parallax clips: swapped {counts['swapped']}, "
+        f"missing {counts['missing']}, skipped-video {counts['skipped']}"
+    )
+    return counts
 
 
 def _job_input_path(value: object, job_dir: Path) -> Path | None:

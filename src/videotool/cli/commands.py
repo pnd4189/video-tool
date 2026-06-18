@@ -62,6 +62,17 @@ def parallax(image: Path, out: Path, duration: float, fps: int, width: int, heig
     return 0
 
 
+def parallax_link(job_path: Path, clips_dir: Path) -> int:
+    from videotool.cli.storyboard_commands import link_parallax
+
+    try:
+        link_parallax(job_path, clips_dir)
+    except (ValueError, VideoToolError) as exc:
+        console.print(f"[red]ERROR[/red] {exc}")
+        return CONFIG_ERROR
+    return 0
+
+
 def validate(job_path: Path, json_output: bool = False) -> int:
     try:
         errors = run_validate(job_path)

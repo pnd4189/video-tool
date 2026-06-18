@@ -51,6 +51,14 @@ def validate(job_path: Path, json_output: bool = typer.Option(False, "--json")) 
     raise typer.Exit(commands.validate(job_path, json_output=json_output))
 
 
+@app.command("parallax-link")
+def parallax_link(
+    job_path: Path,
+    clips_dir: Path = typer.Option(Path("Parallax"), "--clips-dir"),
+) -> None:
+    raise typer.Exit(commands.parallax_link(job_path, clips_dir))
+
+
 @app.command()
 def probe(job_path: Path, json_output: bool = typer.Option(False, "--json")) -> None:
     raise typer.Exit(commands.probe(job_path, json_output=json_output))
