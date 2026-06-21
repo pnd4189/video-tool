@@ -36,8 +36,9 @@ final report. Never block on it.
 Before rendering, read the story to pick effects — the LLM agent is the classifier, no code:
 read the first ~300 words of `*_vi.txt` + skim `*_image_prompts.txt` + glance at 1–2
 `Image/scene_*.jpg`. Infer a `mood` (clean/melancholy/cozy/horror/action) and, if the scene
-suggests weather/atmosphere, an overlay from `~/.cache/videotool/overlays/` (mood map in the
-"Atmospheric overlay" decision). Then print ONE proposal line and let the user decide, e.g.:
+suggests weather/atmosphere, an overlay from `~/.local/share/videotool/overlays/` (mood map in
+the "Atmospheric overlay" decision). Then print ONE proposal line and WAIT for the user to confirm
+which overlay before rendering full, e.g.:
 `Đề xuất: mood=melancholy + atmosphere=rain-fx-011 (truyện bi, tông mưa hợp). Bật full FX? [y / sửa]`.
 - User confirms full → write `enhance.tier: full` (or per-feature) + `enhance.mood` +
   `enhance.atmosphere: true` + `inputs.particle_overlay` into job.yaml. `parallax` only if asked (expensive).
@@ -163,15 +164,24 @@ Outputs land in `$JOB_DIR/outputs/`:
 - **Atmospheric overlay = pick from local CC0 library.** `enhance.atmosphere: true` blends
   `inputs.particle_overlay` (rain/snow/fire/smoke/etc. loop, black bg) with `screen`. A local CC0
   library (ForFilmCreation + FX Elements, all converted to 4K H264 yuv420p, black-bg or
-  alpha-flattened-on-black) lives at `~/.cache/videotool/overlays/`, files named
-  `{kind}-{src}-{id}.mp4` (`rain-* snow-* fire-* smoke-* particles-* dust-* cosmos-*`). When the
-  user wants full FX, **suggest** the overlay that fits the video (read the story/scene mood first)
-  and set `inputs.particle_overlay` to it (melancholy→`rain-*`, winter/cozy→`snow-*`,
-  action/horror→`fire-*`/`smoke-*`, mystical/dreamy→`smoke-*`/`particles-*`/`cosmos-*`, old-film→`dust-*`)
-  + `enhance.atmosphere: true`. One overlay slot per video; `particles` wins if both on. Masters stay
-  on gdrive (`KHÁC/HIỆU ỨNG VIDEO/`); nothing copyrighted lives in the repo. Re-stage the library
-  with `rclone` if the cache is cleared. Screen-blends (atmosphere + glow) run in `gbrp` (RGB) —
-  blending in yuv420p tints the whole frame magenta; do NOT revert. *(Library + blend fix 2026-06-18.)*
+  alpha-flattened-on-black) lives at `~/.local/share/videotool/overlays/` (durable XDG data dir,
+  NOT `~/.cache` — moved there 2026-06-21 so a cache wipe can't delete it), files named
+  `{kind}-{src}-{id}.mp4` (`rain-* snow-* fire-* smoke-* particles-* dust-* cosmos-*` CC0 +
+  generated `fireflies-gen-* ember-gen-* dust-gen-* qi-gen-*`). Generated overlays come from
+  `scripts/gen_overlay.py --preset <fireflies|ember|dust>` (numpy, local, instant) and
+  `Colab/qi_wisps_overlay_colab.py` (GLSL on Colab/Kaggle GPU → download `qi-gen-01.mp4`).
+  When the user wants full FX, `ls` that folder, **suggest** the overlay that fits the
+  video (read the story/scene mood first) and **WAIT for the user to confirm which overlay via a
+  one-line proposal before rendering full**, then set `inputs.particle_overlay` to it
+  (melancholy→`rain-*`, winter/cozy→`snow-*`, action/horror→`fire-*`/`smoke-*`,
+  rural-night/summer→`fireflies-gen-*`, talisman-burning→`ember-gen-*`,
+  mystical/qi/dreamy→`qi-gen-*`/`smoke-*`/`particles-*`/`cosmos-*`,
+  old-film/abandoned-interior→`dust-*`/`dust-gen-*`) + `enhance.atmosphere: true`.
+  One overlay slot per video; `particles` wins if both on. Masters stay on gdrive
+  (`KHÁC/HIỆU ỨNG VIDEO/`); nothing copyrighted lives in the repo. Re-stage the library with
+  `rclone` to the durable folder if it is ever cleared. Screen-blends (atmosphere + glow) run in
+  `gbrp` (RGB) — blending in yuv420p tints the whole frame magenta; do NOT revert.
+  *(Library + blend fix 2026-06-18; moved to durable dir + generated overlays 2026-06-21.)*
 - **Colab DepthFlow 2.5D = separate `/parallax-video` command (NOT `enhance.parallax`).** GPU-offload
   path: Colab `Colab/v4_depthflow_clips_colab.py` renders one loopable 1080p clip per still →
   `Parallax/<image-stem>.mp4` (manual download + upload beside the asset folder). `/parallax-video`
