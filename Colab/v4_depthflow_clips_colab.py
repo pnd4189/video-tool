@@ -11,7 +11,7 @@
 #
 # Input: link/đường dẫn folder Drive chứa Image/ (hoặc media/). KHÔNG cần voice/music.
 # =====================================================================
-import os, shutil, subprocess, time
+import json, os, re, shutil, subprocess, time
 
 CACHE = "/content/drive/MyDrive/videotool_colab_cache"
 os.environ["PIP_CACHE_DIR"]      = f"{CACHE}/pip"
@@ -33,6 +33,30 @@ def sh(cmd, check=True):
 sh("apt-get -qq install -y ffmpeg portaudio19-dev >/dev/null 2>&1 || true")
 sh("pip -q install depthflow gradio gdown natsort pillow")
 
+
+def setup_nvidia_egl():
+    """Colab driver chỉ có CUDA compute, THIẾU userspace OpenGL/EGL của NVIDIA → DepthFlow warp
+    rơi về llvmpipe (CPU, ~38x chậm hơn). Cài libnvidia-gl khớp major version của driver +
+    đăng ký ICD để EGL chọn GPU. Không có GPU thì cảnh báo và để render CPU."""
+    if not shutil.which("nvidia-smi"):
+        print("⚠️ Không thấy GPU. Render sẽ chạy CPU (llvmpipe), rất chậm — đổi Runtime sang T4 GPU.")
+        return
+    ver = subprocess.run("nvidia-smi --query-gpu=driver_version --format=csv,noheader",
+                         shell=True, capture_output=True, text=True).stdout.strip()
+    major = ver.split(".")[0] if ver else ""
+    if major:
+        sh(f"apt-get -qq install -y libnvidia-gl-{major} 2>&1 | tail -3", check=False)
+    icd = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json"   # 10_ < 50_mesa → EGL ưu tiên NVIDIA
+    if not os.path.exists(icd):
+        os.makedirs(os.path.dirname(icd), exist_ok=True)
+        with open(icd, "w") as f:
+            json.dump({"file_format_version": "1.0.0",
+                       "ICD": {"library_path": "libEGL_nvidia.so.0"}}, f)
+    print(f"✅ NVIDIA EGL sẵn sàng (driver {ver}). Render sẽ dùng GPU.")
+
+
+setup_nvidia_egl()
+
 from natsort import natsorted
 import gradio as gr
 
@@ -41,18 +65,13 @@ IMG_EXT = (".jpg", ".jpeg", ".png", ".webp")
 
 
 def depthflow_clip(img, dur, fps, out):
-    """Render 1 clip parallax loopable. `circle` = quỹ đạo tuần hoàn (loop liền mạch).
-    Thử 2 dạng CLI; nếu phiên bản DepthFlow khác, chạy `!depthflow --help` rồi sửa ở đây."""
-    forms = [
-        f"depthflow input --image '{img}' circle main --time {dur:.2f} --fps {fps} "
-        f"--width {W} --height {H} --output '{out}'",
-        f"depthflow input -i '{img}' circle main -t {dur:.2f} --fps {fps} -o '{out}'",
-    ]
-    for cmd in forms:
-        r = subprocess.run(cmd, shell=True)
-        if r.returncode == 0 and os.path.exists(out):
-            return True
-    return False
+    """Render 1 clip parallax loopable. DepthFlow không có lệnh `circle`; animation mặc định
+    đã là quỹ đạo tuần hoàn và `--time` chính là Loop duration → clip loop liền mạch.
+    Nếu version khác, chạy `!depthflow --help` để kiểm tra cú pháp."""
+    cmd = (f"depthflow input -i '{img}' main -o '{out}' "
+           f"--time {dur:.2f} --fps {fps} --width {W} --height {H}")
+    r = subprocess.run(cmd, shell=True)
+    return r.returncode == 0 and os.path.exists(out)
 
 
 def find_images(folder):
@@ -68,8 +87,17 @@ def find_images(folder):
 def resolve_folder(inp):
     inp = inp.strip()
     if inp.startswith("http"):
-        dst = "/content/job_src"; shutil.rmtree(dst, ignore_errors=True)
-        sh(f"gdown --folder '{inp}' -O '{dst}' --remaining-ok")
+        # Bỏ '/u/N/' (account selector trong phiên đa-đăng-nhập) — gdown parse sạch hơn.
+        url = re.sub(r"/u/\d+/", "/", inp)
+        dst = "/content/job_src"; shutil.rmtree(dst, ignore_errors=True); os.makedirs(dst, exist_ok=True)
+        # gdown chạy KHÔNG đăng nhập → chỉ tải được folder share 'Anyone with the link'.
+        r = sh(f"gdown --folder '{url}' -O '{dst}' --remaining-ok", check=False)
+        if r.returncode != 0 or not os.listdir(dst):
+            raise ValueError(
+                "gdown không tải được folder. Vì Colab này CHƯA share-link nên cách chắc ăn: "
+                "Drive đã mount sẵn ở /content/drive — dán ĐƯỜNG DẪN folder (vd: "
+                "'TenFolder/Tap1' hoặc '/content/drive/MyDrive/.../Tap1') thay cho URL. "
+                "Nếu vẫn muốn dùng URL, share folder ở chế độ 'Anyone with the link'.")
         subs = [os.path.join(dst, d) for d in os.listdir(dst) if os.path.isdir(os.path.join(dst, d))]
         return subs[0] if len(subs) == 1 else dst
     if inp.startswith("/content/drive"):
@@ -78,7 +106,10 @@ def resolve_folder(inp):
 
 
 def make_clips(folder_input, dur, fps, progress=gr.Progress()):
-    folder = resolve_folder(folder_input)
+    try:
+        folder = resolve_folder(folder_input)
+    except ValueError as e:
+        return f"❌ {e}"
     imgs = find_images(folder)
     if not imgs:
         return f"❌ Không thấy ảnh trong {folder} (Image/ hoặc media/)."

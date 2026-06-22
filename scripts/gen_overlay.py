@@ -54,11 +54,12 @@ class Preset:
 
 PRESETS: dict[str, Preset] = {
     # Sparse warm yellow-green dots, gentle wander + soft pulse — rural summer night.
+    # brightness > 255 so the tight core clips to a crisp yellow-green point on peak twinkle.
     "fireflies": Preset(
         count=80,
         color=(206, 224, 110),
-        glow_sigma=6.0,
-        brightness=200.0,
+        glow_sigma=4.5,
+        brightness=330.0,
         drift_amp=(42.0, 30.0),
         flicker_depth=0.6,
     ),
@@ -66,32 +67,44 @@ PRESETS: dict[str, Preset] = {
     "ember": Preset(
         count=110,
         color=(255, 120, 42),
-        glow_sigma=4.0,
-        brightness=230.0,
+        glow_sigma=3.0,
+        brightness=330.0,
         flicker_depth=0.0,
         lifecycle=True,
         rise_px=430.0,
         sway_px=14.0,
     ),
-    # Pale, dense, near-still motes — "suspended unnaturally still" abandoned interior.
+    # Pale, near-still motes — "suspended unnaturally still" abandoned interior. Small tight
+    # specks (low sigma) so they read as sharp in-focus dust, not dim fuzz.
     "dust": Preset(
         count=190,
         color=(202, 202, 208),
-        glow_sigma=3.0,
-        brightness=72.0,
+        glow_sigma=2.2,
+        brightness=190.0,
         drift_amp=(8.0, 8.0),
         flicker_depth=0.15,
     ),
 }
 
 
-def gaussian_sprite(sigma: float) -> np.ndarray:
-    """A small square gaussian kernel, peak 1.0, edges ~0 (no hard square halo)."""
-    radius = max(1, int(math.ceil(3.0 * sigma)))
+def glow_sprite(sigma: float) -> np.ndarray:
+    """Core+halo profile (peak 1.0): a tight bright core spike (sharp point) plus a soft wide
+    halo (glow). A pure gaussian has no crisp center and reads as a fuzzy blob; the core term
+    is what makes each particle a sharp dot on black. With a >255 brightness the core clips to
+    a hot point while the halo stays a soft surround — the high core/halo contrast survives
+    H264 far better than a flat gaussian."""
+    radius = max(2, int(math.ceil(3.0 * sigma)))
     ax = np.arange(-radius, radius + 1, dtype=np.float32)
-    gx = np.exp(-(ax * ax) / (2.0 * sigma * sigma))
-    kernel = np.outer(gx, gx)
-    return kernel.astype(np.float32)
+    r2 = ax[:, None] ** 2 + ax[None, :] ** 2
+    halo = np.exp(-r2 / (2.0 * sigma * sigma))
+    # Core ~3-4px wide (not a 1px spike): a 1px core is the highest spatial frequency and H264
+    # destroys it on the first encode — and the pipeline re-encodes the whole video again. A few
+    # px of over-saturated core clips to a flat bright disc that survives BOTH encodes and still
+    # reads as a sharp dot.
+    core_sigma = max(1.8, sigma * 0.38)
+    core = np.exp(-r2 / (2.0 * core_sigma * core_sigma))
+    sprite = 0.4 * halo + 0.6 * core
+    return (sprite / sprite.max()).astype(np.float32)
 
 
 @dataclass
@@ -178,7 +191,7 @@ def generate(
     preset = PRESETS[preset_name]
     rng = np.random.default_rng(seed)
     fld = _make_field(preset, width, height, rng)
-    sprite = gaussian_sprite(preset.glow_sigma)
+    sprite = glow_sprite(preset.glow_sigma)
     total = max(2, int(round(seconds * fps)))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -186,7 +199,11 @@ def generate(
         [
             "ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
             "-s", f"{width}x{height}", "-r", str(fps), "-i", "-", "-an",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+            # crf 16 + slow keeps the tiny bright cores; deblock=-1,-1 stops x264 from softening
+            # the sharp dot edges (safe here — flat black bg has no blocking to hide).
+            "-c:v", "libx264", "-preset", "slow", "-crf", "12",
+            "-x264-params", "deblock=-1,-1",
+            "-pix_fmt", "yuv420p",
             str(out_path),
         ],
         stdin=subprocess.PIPE,

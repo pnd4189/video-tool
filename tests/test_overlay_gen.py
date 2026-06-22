@@ -19,7 +19,7 @@ def _field_and_sprite(preset_name: str):
     preset = gen_overlay.PRESETS[preset_name]
     rng = np.random.default_rng(7)
     fld = gen_overlay._make_field(preset, WIDTH, HEIGHT, rng)
-    sprite = gen_overlay.gaussian_sprite(preset.glow_sigma)
+    sprite = gen_overlay.glow_sprite(preset.glow_sigma)
     return preset, fld, sprite
 
 

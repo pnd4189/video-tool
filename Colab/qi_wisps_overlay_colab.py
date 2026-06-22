@@ -29,8 +29,8 @@ OUT_PATH = f"{OUT_DIR}/qi-gen-01.mp4"
 # Tham số overlay (đổi nếu cần)
 WIDTH, HEIGHT, FPS, SECONDS = 1920, 1080, 30, 18
 COLOR = (0.42, 0.86, 0.74)   # lam-lục linh khí
-DENSITY = 0.55               # ngưỡng mật độ tua sáng (cao = thưa hơn)
-BRIGHTNESS = 1.15            # độ sáng tua
+DENSITY = 0.66               # ngưỡng mật độ tua sáng (cao = thưa hơn, linh khí mỏng)
+BRIGHTNESS = 0.9             # độ sáng tua (thấp = phiêu nhẹ, chìm vào nền)
 
 
 def sh(cmd, check=True):
@@ -64,7 +64,11 @@ def setup_nvidia_egl():
 
 
 setup_nvidia_egl()
-os.environ.setdefault("MODERNGL_BACKEND", "egl")
+# Hard-set (NOT setdefault): Colab may pre-seed MODERNGL_BACKEND empty/x11, and setdefault
+# won't override it → glcontext falls back to the x11 backend → "XOpenDisplay: cannot open
+# display" on headless. Force EGL before importing moderngl so it picks the NVIDIA EGL path.
+os.environ["MODERNGL_BACKEND"] = "egl"
+os.environ["PYOPENGL_PLATFORM"] = "egl"
 
 import numpy as np
 import moderngl
@@ -109,18 +113,39 @@ void main(){
     vec2 f2 = vec2(cos(TAU*u_t + 1.7), sin(TAU*u_t + 1.7));
     vec2 warp = vec2(fbm(p + 0.6*f1), fbm(p + vec2(5.2) - 0.6*f1));
     float field = fbm(p + 1.8*warp + 0.5*f2);
-    // Soft tendrils: emphasise mid-band of the field, fade the rest to black.
-    float wisp = smoothstep(u_density, u_density+0.18, field) * (1.0 - smoothstep(u_density+0.18, u_density+0.5, field));
+    // Soft tendrils: emphasise a NARROW mid-band of the field, fade the rest to black. A thin band
+    // = sparse, wispy threads (not a dense cloud) so the qi drifts lightly over the scene.
+    float wisp = smoothstep(u_density, u_density+0.07, field) * (1.0 - smoothstep(u_density+0.07, u_density+0.22, field));
     vec3 col = u_color * wisp * u_bright;
     frag = vec4(col, 1.0);
 }
 """
 
 
+def make_context():
+    """Colab's bundled glcontext IGNORES the MODERNGL_BACKEND env var — it only honours the
+    `backend=` kwarg passed straight through create_context. Without it, standalone mode on Linux
+    defaults to the x11 backend → "XOpenDisplay: cannot open display" on headless. So request EGL
+    explicitly (touches the NVIDIA GPU via the ICD set up above). If EGL is unavailable for any
+    reason, fall back to a virtual X display (xvfb) so the render still completes on CPU (llvmpipe)
+    — the GLSL output is identical, only slower."""
+    try:
+        ctx = moderngl.create_context(standalone=True, backend="egl")
+        print("EGL context OK.")
+        return ctx
+    except Exception as e:
+        print("⚠️ EGL backend failed (", e, ") → falling back to xvfb + CPU render.")
+        sh("apt-get -qq install -y xvfb >/dev/null 2>&1 || true", check=False)
+        sh("pip -q install pyvirtualdisplay", check=False)
+        from pyvirtualdisplay import Display
+        Display(visible=0, size=(WIDTH, HEIGHT)).start()
+        return moderngl.create_context(standalone=True)  # x11 against the virtual display
+
+
 def main():
-    ctx = moderngl.create_context(standalone=True)
+    ctx = make_context()
     print("GL renderer:", ctx.info.get("GL_RENDERER", "?"),
-          "→", "GPU OK" if "llvmpipe" not in ctx.info.get("GL_RENDERER", "").lower() else "⚠️ CPU llvmpipe!")
+          "→", "GPU OK" if "llvmpipe" not in ctx.info.get("GL_RENDERER", "").lower() else "⚠️ CPU llvmpipe (slower, output identical)")
     prog = ctx.program(vertex_shader=VERT, fragment_shader=FRAG)
     quad = ctx.buffer(np.array([-1,-1, 1,-1, -1,1, 1,1], dtype="f4").tobytes())
     vao = ctx.vertex_array(prog, [(quad, "2f", "in_pos")])
