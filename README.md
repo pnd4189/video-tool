@@ -2,7 +2,7 @@
 
 **Video Tool** là một công cụ dòng lệnh Python (CLI) biến **file âm thanh + hình ảnh + nhạc nền** thành video YouTube dài hạn (16:9) hoặc Shorts (9:16) **tự động, không cần CapCut**.
 
-Được tối ưu cho các kênh dịch truyện âm thanh (Bình Thiên Sách, Đạo Sĩ, v.v.): khả năng tạo 1 video trong ~1 giờ, không yêu cầu kỹ năng chỉnh sửa video.
+Được tối ưu cho các kênh video dạng audiobook/truyện: khả năng tạo 1 video trong ~1 giờ, không yêu cầu kỹ năng chỉnh sửa video.
 
 ## Tính năng chính
 
@@ -10,7 +10,7 @@
 |-----------|-------|
 | **Render nhanh** | Tier light (mặc định): không mã hóa lại, chỉ xếp chồng → ~1h cho video 1h |
 | **Phụ đề thông minh** | Script được căn chỉnh vào thời gian whisper, không dựa trên segment |
-| **Hiệu ứng FX** | 5 loại mood + overlay khí quyển (mưa/tuyết/lửa/lửa dương vật) |
+| **Hiệu ứng FX** | 5 loại mood + overlay khí quyển (mưa/tuyết/lửa/khí) |
 | **2.5D Parallax** | Stills → Ken Burns hoặc Deep DepthFlow (GPU Colab) |
 | **Chương tự động** | Whisper transcript → YouTube chapter timestamps |
 | **B-roll interleave** | Video clips trộn với hình ảnh theo thứ tự |
