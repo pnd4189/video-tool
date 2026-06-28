@@ -59,9 +59,20 @@ def detect_voice(job_dir: Path) -> Path:
 
 
 def detect_script(job_dir: Path) -> Path | None:
-    """Find the polished Vietnamese script (`*_vi.txt`); returns None when absent."""
-    matches = sorted(Path(job_dir).glob("*_vi.txt"))
-    return matches[0] if matches else None
+    """Find the polished Vietnamese narration script; returns None when absent.
+
+    Real chapter folders name it `*_vi_qa.txt` (QA-finalised) or plain `*_vi.txt`, and
+    also carry `*_vi_image_prompts.txt` / `*_vi_music_prompts.txt` that are NOT scripts.
+    Match `*_vi*.txt`, drop the prompt files, then prefer the QA script.
+    """
+    candidates = [p for p in sorted(Path(job_dir).glob("*_vi*.txt")) if "prompt" not in p.name.lower()]
+    if not candidates:
+        return None
+    for suffix in ("_vi_qa.txt", "_vi.txt"):
+        for p in candidates:
+            if p.name.endswith(suffix):
+                return p
+    return candidates[0]
 
 
 def ensure_job_yaml(job_dir: Path) -> Path:
