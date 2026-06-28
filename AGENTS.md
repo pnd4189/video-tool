@@ -204,7 +204,7 @@ Bare minimum: a folder path. Optional hints in free text: title, which preset to
 ## Tech notes
 
 - Python 3.12 venv at `.venv/`. Activate via the explicit binary paths above.
-- AI extras (`faster-whisper` + deps) ARE installed; `base` model offline at `~/.cache/videotool/models/faster-whisper-base`. Used by `transcribe` for subtitles + chapter timing.
+- AI extras (`faster-whisper` + deps) ARE installed; `base` model offline at `~/.cache/videotool/models/faster-whisper-base`. Used by `transcribe` for subtitles + chapter timing. `transcribe` also takes `--device cuda --compute-type float16 --model large-v3` to run on cloud GPU (Kaggle/Colab) — see `docs/cloud-gpu-whisper-setup.md` + `Colab/{kaggle,colab}_runner.ipynb`.
 - FFmpeg is a hard dependency (`apt install ffmpeg`). Encoder default `libx264-balanced`.
 - Key source files:
   - `src/videotool/core/job_spec.py` — pydantic schema

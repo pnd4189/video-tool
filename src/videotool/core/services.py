@@ -232,10 +232,16 @@ def run_render(
     ]
 
 
-def run_transcribe(job_path: Path, model: str, script: Path | None = None) -> Path:
+def run_transcribe(
+    job_path: Path,
+    model: str,
+    script: Path | None = None,
+    device: str = "cpu",
+    compute_type: str = "int8",
+) -> Path:
     job = load_job(job_path)
     _raise_validation_errors(run_validate(job_path))
-    transcriber = FasterWhisperTranscriber(model_path=Path(model))
+    transcriber = FasterWhisperTranscriber(model_path=model, device=device, compute_type=compute_type)
     transcript = transcriber.transcribe(job_path.parent / job.inputs.voice, language=job.project.language)
     # --script overrides inputs.script; both supply the polished wording.
     script_path = script or (job_path.parent / job.inputs.script if job.inputs.script else None)

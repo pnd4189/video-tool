@@ -84,10 +84,12 @@ def batch(root: Path, jobs: int = 1, dry_run: bool = False) -> None:
 @app.command()
 def transcribe(
     job_path: Path,
-    model: str = typer.Option(..., "--model", help="Local faster-whisper model path."),
+    model: str = typer.Option(..., "--model", help="Local faster-whisper model path or HuggingFace model id (e.g. large-v3)."),
     script: Path = typer.Option(None, "--script", help="Polished prose script; its wording is used with whisper timing."),
+    device: str = typer.Option("cpu", "--device", help="Compute device: cpu (default) or cuda."),
+    compute_type: str = typer.Option("int8", "--compute-type", help="Quantization: int8 (default, CPU) or float16 (GPU)."),
 ) -> None:
-    raise typer.Exit(commands.transcribe(job_path, model, script))
+    raise typer.Exit(commands.transcribe(job_path, model, script, device, compute_type))
 
 
 @app.command("analyze-audio")

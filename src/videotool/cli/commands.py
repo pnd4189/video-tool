@@ -176,9 +176,17 @@ def _render_in_worker(job_path: Path, dry_run: bool) -> int:
     return render(job_path, None, True, dry_run, False)
 
 
-def transcribe(job_path: Path, model: str, script: Path | None = None) -> int:
+def transcribe(
+    job_path: Path,
+    model: str,
+    script: Path | None = None,
+    device: str = "cpu",
+    compute_type: str = "int8",
+) -> int:
     try:
-        console.print(f"Wrote {run_transcribe(job_path, model=model, script=script)}")
+        console.print(
+            f"Wrote {run_transcribe(job_path, model=model, script=script, device=device, compute_type=compute_type)}"
+        )
     except DependencyError as exc:
         console.print(f"[red]MISSING DEPENDENCY[/red] {exc}")
         return DEPENDENCY_ERROR

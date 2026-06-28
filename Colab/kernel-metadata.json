@@ -1,0 +1,13 @@
+{
+  "id": "pnd4189/videotool-whisper-runner",
+  "title": "videotool-whisper-runner",
+  "code_file": "kaggle_runner.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": []
+}
