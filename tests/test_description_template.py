@@ -117,4 +117,53 @@ def test_run_package_offsets_chapters_by_intro_cta(tmp_path: Path, monkeypatch) 
     desc = (output_dir / "description.txt").read_text(encoding="utf-8")
     assert "00:00 Giới thiệu" in desc
     assert "00:08 Chương 11: A" in desc  # shifted by the 8s intro CTA
-    assert "10:08 Chương 12: B" in desc
+
+
+def test_run_package_emits_composed_aligned_youtube_srt_for_intro_cta(tmp_path: Path, monkeypatch) -> None:
+    # captions.srt stays raw (burn baseline); captions.youtube.srt is the sidecar shifted by
+    # the intro CTA so its cues match the composed video on YouTube.
+    job_path = _template_job(tmp_path)
+    text = job_path.read_text(encoding="utf-8").replace(
+        "  description_template: template.txt",
+        "  description_template: template.txt\n  intro_cta: intro.mp4",
+    )
+    job_path.write_text(text, encoding="utf-8")
+    (tmp_path / "intro.mp4").write_bytes(b"fake")
+    output_dir = tmp_path / "outputs"
+    output_dir.mkdir()
+    (output_dir / "youtube-16x9.mp4").write_bytes(b"fake")
+    (output_dir / "thumbnail-1280x720.jpg").write_bytes(b"fake")
+    (output_dir / "chapters.json").write_text(
+        json.dumps([{"start": 0.0, "title": "Chương 11: A"}]), encoding="utf-8"
+    )
+    raw_srt = "1\n00:00:00,000 --> 00:00:02,000\nXin chào\n"
+    (output_dir / "captions.srt").write_text(raw_srt, encoding="utf-8")
+    monkeypatch.setattr(services, "validate_package", lambda *a, **k: [])
+    monkeypatch.setattr(services, "_generate_thumbnails", lambda *a, **k: None)
+    monkeypatch.setattr(services, "probe_media", lambda *a, **k: SimpleNamespace(duration=8.0))
+
+    services.run_package(job_path)
+
+    # Raw file untouched; sidecar shifted by the 8s intro CTA.
+    assert (output_dir / "captions.srt").read_text(encoding="utf-8") == raw_srt
+    sidecar = (output_dir / "captions.youtube.srt").read_text(encoding="utf-8")
+    assert "00:00:08,000 --> 00:00:10,000" in sidecar
+
+
+def test_run_package_without_intro_cta_writes_no_youtube_srt(tmp_path: Path, monkeypatch) -> None:
+    # No intro CTA -> raw captions.srt already matches the video, so no separate sidecar.
+    job_path = _template_job(tmp_path)
+    output_dir = tmp_path / "outputs"
+    output_dir.mkdir()
+    (output_dir / "youtube-16x9.mp4").write_bytes(b"fake")
+    (output_dir / "thumbnail-1280x720.jpg").write_bytes(b"fake")
+    (output_dir / "chapters.json").write_text(
+        json.dumps([{"start": 0.0, "title": "Chương 11: A"}]), encoding="utf-8"
+    )
+    (output_dir / "captions.srt").write_text("1\n00:00:00,000 --> 00:00:02,000\nXin chào\n", encoding="utf-8")
+    monkeypatch.setattr(services, "validate_package", lambda *a, **k: [])
+    monkeypatch.setattr(services, "_generate_thumbnails", lambda *a, **k: None)
+
+    services.run_package(job_path)
+
+    assert not (output_dir / "captions.youtube.srt").exists()

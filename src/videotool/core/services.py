@@ -294,6 +294,15 @@ def run_package(job_path: Path) -> list[object]:
         else 0.0
     )
     chapters = _load_chapters(job, output_dir, intro_seconds)
+    # captions.srt stays narration-aligned (the burn baseline). When an intro CTA shifts the
+    # composed timeline, also emit captions.youtube.srt shifted to match — that is the sidecar
+    # to upload to YouTube. Without a CTA the two files are identical. The raw file is never
+    # overwritten, so a re-package always shifts from the same baseline (no double-offset).
+    captions_src = output_dir / "captions.srt"
+    if captions_src.exists() and intro_seconds > 0:
+        (output_dir / "captions.youtube.srt").write_text(
+            shift_srt(captions_src.read_text(encoding="utf-8"), intro_seconds), encoding="utf-8"
+        )
     description_path = output_dir / "description.txt"
     if job.inputs.description_template is not None:
         template_text = (job_path.parent / job.inputs.description_template).read_text(encoding="utf-8")
