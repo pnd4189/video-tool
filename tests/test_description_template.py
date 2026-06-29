@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from videotool.core import services
 from videotool.package.youtube import format_chapters_block, render_description_template
@@ -87,3 +88,33 @@ def test_run_package_renders_template_with_chapters_json(tmp_path: Path, monkeyp
     assert "Tóm tắt tập này." in text
     assert "00:00 Chương 11: A" in text
     assert "10:00 Chương 12: B" in text
+
+
+def test_run_package_offsets_chapters_by_intro_cta(tmp_path: Path, monkeypatch) -> None:
+    # chapters.json is narration-aligned; with an intro CTA the published timestamps shift by
+    # its duration and a 00:00 "Giới thiệu" marker is prepended.
+    job_path = _template_job(tmp_path)
+    text = job_path.read_text(encoding="utf-8").replace(
+        "  description_template: template.txt",
+        "  description_template: template.txt\n  intro_cta: intro.mp4",
+    )
+    job_path.write_text(text, encoding="utf-8")
+    (tmp_path / "intro.mp4").write_bytes(b"fake")
+    output_dir = tmp_path / "outputs"
+    output_dir.mkdir()
+    (output_dir / "youtube-16x9.mp4").write_bytes(b"fake")
+    (output_dir / "thumbnail-1280x720.jpg").write_bytes(b"fake")
+    (output_dir / "chapters.json").write_text(
+        json.dumps([{"start": 0.0, "title": "Chương 11: A"}, {"start": 600.0, "title": "Chương 12: B"}]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(services, "validate_package", lambda *a, **k: [])
+    monkeypatch.setattr(services, "_generate_thumbnails", lambda *a, **k: None)
+    monkeypatch.setattr(services, "probe_media", lambda *a, **k: SimpleNamespace(duration=8.0))
+
+    services.run_package(job_path)
+
+    desc = (output_dir / "description.txt").read_text(encoding="utf-8")
+    assert "00:00 Giới thiệu" in desc
+    assert "00:08 Chương 11: A" in desc  # shifted by the 8s intro CTA
+    assert "10:08 Chương 12: B" in desc

@@ -87,12 +87,17 @@ def _stage_voice_cta(job: JobSpec, job_path: Path, workspace_root: Path) -> _Cta
         intro=(root / job.inputs.intro_cta) if job.inputs.intro_cta else None,
         outro=(root / job.inputs.outro_cta) if job.inputs.outro_cta else None,
     )
+    # CTA visual: prefer an explicit still, else reuse the CTA clip itself (an animated
+    # Intro/Outro CTA.mp4) so the moving card shows instead of a frozen frame. scene_filter
+    # plays a video source straight through (motion only applies to stills).
+    intro_visual = job.inputs.intro_cta_image or job.inputs.intro_cta
+    outro_visual = job.inputs.outro_cta_image or job.inputs.outro_cta
     return _CtaRender(
         voice_path=composed.path,
         intro_seconds=composed.intro_seconds,
         outro_seconds=composed.outro_seconds,
-        intro_image=(root / job.inputs.intro_cta_image) if job.inputs.intro_cta_image else None,
-        outro_image=(root / job.inputs.outro_cta_image) if job.inputs.outro_cta_image else None,
+        intro_image=(root / intro_visual) if intro_visual else None,
+        outro_image=(root / outro_visual) if outro_visual else None,
     )
 
 
@@ -203,7 +208,7 @@ def run_render(
     workspace = Workspace(job_path.parent / job.render.temp_dir)
     workspace.prepare()
     cta = _stage_voice_cta(job, job_path, workspace.root) if not dry_run else None
-    subtitle_path = _stage_subtitle(job, job_path, workspace.root) if not dry_run else None
+    subtitle_path = _stage_subtitle(job, job_path, workspace.root, cta) if not dry_run else None
     music_path = _stage_music(job, job_path, workspace.root, cta) if not dry_run else None
     # Materialize parallax clips only for a real render (not dry-run: clip rendering is costly).
     materialize_parallax = not dry_run
@@ -249,18 +254,14 @@ def run_transcribe(
         transcript = align_script_to_transcript(parse_script(script_path), transcript)
     output = job_path.parent / "outputs" / "captions.srt"
     write_srt(transcript, output)
-    # An intro CTA plays before the narration in the final video, so captions + chapters must
-    # shift by its duration. The artifacts stay aligned to the composed timeline produced at render.
-    intro_seconds = 0.0
-    if job.inputs.intro_cta:
-        intro_seconds = probe_media(job_path.parent / job.inputs.intro_cta).duration or 0.0
-    if intro_seconds > 0:
-        output.write_text(shift_srt(output.read_text(encoding="utf-8"), intro_seconds), encoding="utf-8")
+    # Captions + chapters stay aligned to the raw narration (cue 0 = first narration word).
+    # The intro-CTA offset is applied downstream by whoever composes the CTA — render shifts
+    # the burn-in copy, package offsets the description chapters. This keeps transcribe
+    # location-independent: a cloud whisper run never needs to know about the CTA.
     # One whisper pass feeds both captions and YouTube chapters: derive chapter markers from
     # the same aligned transcript. Skip silently when fewer than 3 valid headings are found.
     chapters = derive_chapters(transcript)
     if chapters:
-        chapters = offset_chapters(chapters, intro_seconds)
         chapters_path = job_path.parent / "outputs" / "chapters.json"
         chapters_path.write_text(
             json.dumps([{"start": start, "title": title} for start, title in chapters], ensure_ascii=False, indent=2),
@@ -285,7 +286,14 @@ def run_package(job_path: Path) -> list[object]:
     library, _ = _load_library_for_job(job, job_path)
     issues = validate_asset_policy(library.records, job.assets.policy)
     write_license_report(library, output_dir / "license-report.md", issues)
-    chapters = _load_chapters(job, output_dir)
+    # chapters.json is narration-aligned; an intro CTA shifts the published timestamps and
+    # adds a 00:00 "Giới thiệu" marker. Compute the offset here (package knows the CTA).
+    intro_seconds = (
+        (probe_media(job_path.parent / job.inputs.intro_cta).duration or 0.0)
+        if job.inputs.intro_cta
+        else 0.0
+    )
+    chapters = _load_chapters(job, output_dir, intro_seconds)
     description_path = output_dir / "description.txt"
     if job.inputs.description_template is not None:
         template_text = (job_path.parent / job.inputs.description_template).read_text(encoding="utf-8")
@@ -318,14 +326,20 @@ def run_package(job_path: Path) -> list[object]:
     return checks
 
 
-def _load_chapters(job: JobSpec, output_dir: Path) -> list[tuple[float, str]]:
+def _load_chapters(
+    job: JobSpec, output_dir: Path, intro_seconds: float = 0.0
+) -> list[tuple[float, str]]:
     """Chapter markers for the description: prefer the whisper-derived outputs/chapters.json,
-    fall back to job.project.chapters when it is absent."""
+    fall back to job.project.chapters when it is absent. Both are narration-aligned; apply the
+    intro-CTA offset (and prepend the 00:00 "Giới thiệu" marker) so published timestamps match
+    the composed video."""
     chapters_path = output_dir / "chapters.json"
     if chapters_path.exists():
         data = json.loads(chapters_path.read_text(encoding="utf-8"))
-        return [(float(entry["start"]), str(entry["title"])) for entry in data]
-    return [(chapter.start, chapter.title) for chapter in job.project.chapters]
+        chapters = [(float(entry["start"]), str(entry["title"])) for entry in data]
+    else:
+        chapters = [(chapter.start, chapter.title) for chapter in job.project.chapters]
+    return offset_chapters(chapters, intro_seconds)
 
 
 def json_default(value: object) -> str:
@@ -340,17 +354,27 @@ def to_json(value: object) -> str:
     return json.dumps(value, default=json_default, indent=2)
 
 
-def _stage_subtitle(job: JobSpec, job_path: Path, workspace_root: Path) -> Path | None:
+def _stage_subtitle(
+    job: JobSpec, job_path: Path, workspace_root: Path, cta: _CtaRender | None = None
+) -> Path | None:
     """Copy outputs/captions.srt to a short ASCII-safe path inside the workspace before
     render. ffmpeg's subtitles filter is fragile with paths containing spaces, single
-    quotes, or filtergraph metacharacters; staging avoids those entirely."""
+    quotes, or filtergraph metacharacters; staging avoids those entirely.
+
+    The on-disk captions.srt is narration-aligned (cue 0 = first word). When an intro CTA
+    precedes the narration, shift the staged burn copy by its duration so the burned cues
+    match the composed timeline. The source file is left untouched (raw), so re-renders
+    always shift from the same baseline."""
     if job.captions.mode != "srt-and-burn" and not job.enhance.is_on("subtitles"):
         return None
     source = job_path.parent / "outputs" / "captions.srt"
     if not source.exists():
         return None
+    text = source.read_text(encoding="utf-8")
+    if cta and cta.intro_seconds > 0:
+        text = shift_srt(text, cta.intro_seconds)
     staged = workspace_root / "captions.srt"
-    shutil.copyfile(source, staged)
+    staged.write_text(text, encoding="utf-8")
     return staged
 
 
