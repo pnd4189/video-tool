@@ -62,6 +62,30 @@ must be deleted (`rclone purge _VIDEOTOOL_SHARED/models/large-v3`) before re-run
 is NOT cached — Colab's GPU image ships a CUDA torch already and the `ai` extra doesn't pull
 it (faster-whisper uses CTranslate2).
 
+## One persistent Colab notebook (no scratchpad sprawl)
+
+By default `open_colab_browser_connection` opens `colab.research.google.com/notebooks/empty.ipynb`
+— Colab's unsaved **scratchpad** — so every new session spawns a fresh throwaway notebook. To
+reuse ONE notebook and just re-point `JOB_DIR` each run, the live runner lives on Drive at
+`gdrive:_VIDEOTOOL_SHARED/colab_runner.ipynb` (a copy of `Colab/colab_runner.ipynb`), and the
+`colab-mcp` package is patched to open it instead of the scratchpad:
+
+```bash
+# File ID of gdrive:_VIDEOTOOL_SHARED/colab_runner.ipynb
+ID=$(rclone lsjson gdrive:_VIDEOTOOL_SHARED/colab_runner.ipynb | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["ID"])')
+F=/home/dung/.local/share/uv/tools/colab-mcp/lib/python3.14/site-packages/colab_mcp/websocket_server.py
+sed -i -E 's|^SCRATCH_PATH = .*|SCRATCH_PATH = "/drive/'"$ID"'"  # VideoTool persistent whisper runner|' "$F"
+```
+
+Re-apply after `uv tool upgrade colab-mcp` (it overwrites site-packages) or if the notebook's
+Drive file ID changes (re-upload → re-fetch ID → re-sed). The patch takes effect on the NEXT
+`colab-mcp` server start (the running session already imported the old constant).
+
+**Per-run workflow** (no new scratchpad): the user asks to run cloud whisper →
+`open_colab_browser_connection` opens `colab_runner.ipynb` with the proxy token injected →
+edit the `JOB_DIR` cell to the target folder → Run All (mount → install+GPU check → whisper →
+confirm). The `large-v3` model + wheels load from the Drive caches; only `JOB_DIR` changes.
+
 ## Drive layout: `_VIDEOTOOL_SHARED/`
 
 Create `gdrive:_VIDEOTOOL_SHARED/` once and upload the cloud core:
