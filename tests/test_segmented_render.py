@@ -263,6 +263,24 @@ class _RecordingExecutor(RenderExecutor):
 
     def _run(self, command: list[str], log_path: Path, preset: str) -> float:
         self.commands.append(command)
+        # Simulate ffmpeg producing its output file (last arg) so the atomic .part rename works.
+        Path(command[-1]).write_bytes(b"clip")
+        return 0.0
+
+
+class _CrashingExecutor(RenderExecutor):
+    """Writes the .part output then raises, simulating a render killed mid-clip."""
+
+    def __init__(self, crash_on_index: int) -> None:
+        super().__init__()
+        self.crash_on_index = crash_on_index
+        self._calls = 0
+
+    def _run(self, command: list[str], log_path: Path, preset: str) -> float:
+        Path(command[-1]).write_bytes(b"partial")  # ffmpeg started writing the clip
+        if self._calls == self.crash_on_index:
+            raise RuntimeError("killed mid-clip")
+        self._calls += 1
         return 0.0
 
 
@@ -283,7 +301,31 @@ def test_run_segmented_skips_existing_clips(tmp_path: Path) -> None:
     executor = _RecordingExecutor()
     executor.run_segmented(plan, tmp_path / "logs")
     ran = [" ".join(command) for command in executor.commands]
-    assert not any("scene-0001.mp4" in command and "-an" in command for command in ran)
-    assert any("scene-0000.mp4" in command for command in ran)
+    assert not any("scene-0001" in command and "-an" in command for command in ran)
+    assert any("scene-0000.part.mp4" in command for command in ran)
     assert any("-f concat" in command for command in ran)  # mux still runs
     assert (tmp_path / "concat.txt").exists()
+
+
+def test_run_segmented_does_not_trust_interrupted_clip(tmp_path: Path) -> None:
+    # A render killed mid-clip must leave NO final clip (only a .part), so a resumed run
+    # re-encodes it instead of trusting a truncated file via size>0.
+    job_path = _write_job(tmp_path, 3)
+    timeline = _timeline(job_path, 6.0)
+    clips_dir = tmp_path / "clips"
+    clips_dir.mkdir()
+    plan = build_segmented_render(
+        timeline, get_profile("libx264-fast"), timeline.outputs[0],
+        clips_dir=clips_dir, concat_list_path=tmp_path / "concat.txt",
+    )
+    with pytest.raises(RuntimeError):
+        _CrashingExecutor(crash_on_index=1).run_segmented(plan, tmp_path / "logs")
+    # Scene 0 finished (final exists); scene 1 was interrupted (only a .part, no final).
+    assert plan.scene_commands[0].output_path.exists()
+    interrupted = plan.scene_commands[1].output_path
+    assert not interrupted.exists()
+    assert interrupted.with_name(interrupted.stem + ".part" + interrupted.suffix).exists()
+
+    # Resume: scene 1's stale .part is discarded and the clip is re-rendered cleanly.
+    _RecordingExecutor().run_segmented(plan, tmp_path / "logs")
+    assert interrupted.exists()

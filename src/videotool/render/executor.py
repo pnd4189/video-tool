@@ -40,7 +40,19 @@ class RenderExecutor:
             if _is_complete(scene.output_path):
                 continue
             scene.output_path.parent.mkdir(parents=True, exist_ok=True)
-            self._run(scene.command, logs_dir / f"{plan.preset}-scene-{index:04}.log", plan.preset)
+            # Render to a sibling .part.<ext> file and rename on success. A clip only appears
+            # at its final path once ffmpeg exited 0, so an interrupted run (timeout/kill) leaves
+            # a .part — never a truncated clip a resumed run would trust via size>0. The temp
+            # keeps the real extension: ffmpeg selects the muxer from the output suffix, and a
+            # bare ".part" has no recognized container, so the muxer fails to initialize.
+            partial = scene.output_path.with_name(
+                scene.output_path.stem + ".part" + scene.output_path.suffix
+            )
+            partial.unlink(missing_ok=True)
+            # _build_scene_clip puts the output path last; retarget it to the .part temp.
+            command = [*scene.command[:-1], str(partial)]
+            self._run(command, logs_dir / f"{plan.preset}-scene-{index:04}.log", plan.preset)
+            partial.replace(scene.output_path)
         plan.concat_list_path.parent.mkdir(parents=True, exist_ok=True)
         plan.concat_list_path.write_text(plan.concat_list_text, encoding="utf-8")
         plan.output_path.parent.mkdir(parents=True, exist_ok=True)
