@@ -18,21 +18,38 @@ from pathlib import Path
 
 DEFAULT_REPO_REF = "git+https://github.com/pnd4189/video-tool@main"
 AUDIO_EXTS = (".wav", ".mp3", ".m4a")
+# Short faster-whisper model names -> HuggingFace repo ids (public, no token).
+HF_MODEL_IDS = {
+    "large-v3": "Systran/faster-whisper-large-v3",
+    "large-v2": "Systran/faster-whisper-large-v2",
+    "large-v1": "Systran/faster-whisper-large-v1",
+    "medium": "Systran/faster-whisper-medium",
+    "small": "Systran/faster-whisper-small",
+    "base": "Systran/faster-whisper-base",
+    "tiny": "Systran/faster-whisper-tiny",
+}
 
 
-def setup(repo_ref: str = DEFAULT_REPO_REF) -> None:
+def setup(repo_ref: str = DEFAULT_REPO_REF, wheelhouse: str | Path | None = None) -> None:
     """Install videotool + AI extras and report the GPU/ffmpeg environment.
 
     `repo_ref` defaults to a public git install (identical on Kaggle + Colab). Pass a
     Drive-staged wheel path instead when the repo must stay private.
+
+    `wheelhouse` is a Drive folder for caching pip wheels across sessions: first run
+    installs from the network and copies the resolved wheels there; later runs install
+    from those cached wheels via `--find-links` (no PyPI re-download). Best-effort — a
+    failure to populate the cache never fails the install.
     """
+    if wheelhouse:
+        Path(wheelhouse).mkdir(parents=True, exist_ok=True)
     if repo_ref.endswith(".whl") or Path(repo_ref).suffix == ".whl":
         spec = f"{repo_ref}[ai]"
     else:
         # git+https refs need the extras suffix appended to the spec, not the URL.
         spec = f"videotool[ai] @ {repo_ref}" if repo_ref.startswith("git+") else f"{repo_ref}[ai]"
-    _pip_install(spec)
-    _pip_install("faster-whisper")
+    _pip_install(spec, wheelhouse)
+    _pip_install("faster-whisper", wheelhouse)
 
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg not found after install; the cloud image is missing it.")
@@ -98,16 +115,52 @@ def ensure_job_yaml(job_dir: Path) -> Path:
     return job_yaml
 
 
+def ensure_model_cache(
+    model_cache_dir: str | Path,
+    model: str = "large-v3",
+) -> Path:
+    """Download a faster-whisper model to a Drive folder ONCE, return the local path.
+
+    Uses `huggingface_hub.snapshot_download(local_dir=...)` which copies real files (no
+    symlinks — Drive FUSE does not support them, so the HF blob cache would break). The
+    `--model` arg then points at this dir, so later sessions load from Drive instead of
+    re-downloading ~3GB. Presence is detected by `config.json`, so a partial download
+    must be deleted before re-running.
+    """
+    model_cache_dir = Path(model_cache_dir)
+    if (model_cache_dir / "config.json").exists():
+        print(f"model cache hit: {model_cache_dir}")
+        return model_cache_dir
+    model_id = HF_MODEL_IDS.get(model, model if "/" in model else f"Systran/faster-whisper-{model}")
+    model_cache_dir.mkdir(parents=True, exist_ok=True)
+    from huggingface_hub import snapshot_download  # noqa: PLC0415
+
+    print(f"downloading {model_id} -> {model_cache_dir} (one-time)...")
+    snapshot_download(model_id, local_dir=str(model_cache_dir))
+    print("download complete.")
+    return model_cache_dir
+
+
 def run_whisper(
     job_dir: Path,
     model: str = "large-v3",
     device: str = "cuda",
     compute_type: str = "float16",
+    model_cache_dir: str | Path | None = None,
 ) -> tuple[Path, Path | None]:
-    """Run GPU whisper via the Phase-1 CLI; return (captions_path, chapters_path|None)."""
+    """Run GPU whisper via the Phase-1 CLI; return (captions_path, chapters_path|None).
+
+    `model_cache_dir` is a Drive folder; when set, the model is resolved to a cached
+    local path under it (downloaded once) and passed as `--model`, skipping the
+    per-session HuggingFace download. When None, `model` is passed through as-is (a bare
+    HuggingFace id => on-demand download each run).
+    """
     job_dir = Path(job_dir)
     job_yaml = ensure_job_yaml(job_dir)
     script = detect_script(job_dir)
+
+    if model_cache_dir:
+        model = str(ensure_model_cache(Path(model_cache_dir) / model, model))
 
     cmd = ["transcribe", str(job_yaml), "--model", model, "--device", device, "--compute-type", compute_type]
     if script is not None:
@@ -124,8 +177,19 @@ def run_whisper(
 # -- internals ---------------------------------------------------------------------------
 
 
-def _pip_install(spec: str) -> None:
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q", spec], check=True)
+def _pip_install(spec: str, wheelhouse: str | Path | None = None) -> None:
+    """Install `spec`; when `wheelhouse` is set, prefer cached wheels and then copy the
+    resolved wheels there for next session. Cache population is best-effort."""
+    cmd = [sys.executable, "-m", "pip", "install", "-q"]
+    if wheelhouse:
+        cmd += ["--find-links", str(wheelhouse)]
+    cmd.append(spec)
+    subprocess.run(cmd, check=True)
+    if wheelhouse:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "download", "-q", "-d", str(wheelhouse), spec],
+            check=False,
+        )
 
 
 def _run_cli(args: list[str]) -> None:

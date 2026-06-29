@@ -14,7 +14,7 @@ Two interchangeable runners — pick whichever has GPU quota left, both on the s
 | Kaggle (primary) | `Colab/kaggle_runner.ipynb` | rclone (no Drive mount) | 30h/week T4 |
 | Colab (backup)   | `Colab/colab_runner.ipynb` | `drive.mount` | Kaggle quota spent |
 
-Shared core: `Colab/videotool_cloud.py` (`setup` / `ensure_job_yaml` / `run_whisper`).
+Shared core: `Colab/videotool_cloud.py` (`setup` / `ensure_job_yaml` / `ensure_model_cache` / `run_whisper`). Re-upload it to `gdrive:_VIDEOTOOL_SHARED/` after editing (the runner copies it from there at cell 2): `rclone copy Colab/videotool_cloud.py gdrive:_VIDEOTOOL_SHARED/`.
 
 ## One-time install model
 
@@ -39,10 +39,28 @@ rclone copy dist/videotool-*.whl gdrive:_VIDEOTOOL_SHARED/
 vc.setup("/content/drive/MyDrive/_VIDEOTOOL_SHARED/videotool-0.1-py3-none-any.whl")
 ```
 
-No HF token is needed — `large-v3` (`Systran/faster-whisper-large-v3`) is a public model,
-downloaded from HuggingFace at runtime each session (no Drive model cache; rclone-down isn't
-faster). If anonymous HF rate-limits ever appear, add `HF_TOKEN` once per account (Kaggle Secret
+No HF token is needed — `large-v3` (`Systran/faster-whisper-large-v3`) is a public model.
+If anonymous HF rate-limits ever appear, add `HF_TOKEN` once per account (Kaggle Secret
 / Colab `userdata`) — deferred, not wired by default.
+
+## Drive caches (model + wheels) — one-time, reused every later session
+
+`run_whisper(model_cache_dir=...)` downloads the model ONCE to a Drive folder and passes
+that local path as `--model`, so later sessions load it straight from Drive instead of
+re-downloading ~3GB each run. `setup(wheelhouse=...)` does the same for the faster-whisper
+pip wheels. Both live under `gdrive:_VIDEOTOOL_SHARED/`:
+
+| Cache | Path | First run | Later runs |
+|-------|------|-----------|------------|
+| Model | `_VIDEOTOOL_SHARED/models/large-v3/` | `snapshot_download` ~3GB (real files, no symlinks — Drive FUSE can't create them) | `config.json` present → skip download, `--model <path>` |
+| Wheels | `_VIDEOTOOL_SHARED/wheelhouse/` | install from network, `pip download` copies resolved wheels there | `pip install --find-links <wheelhouse>` (no PyPI re-fetch) |
+
+The model download uses `huggingface_hub.snapshot_download(local_dir=...)`, NOT the HF blob
+cache — the blob cache uses symlinks, which the Drive FUSE mount cannot create, so it would
+break. `ensure_model_cache()` detects a completed download by `config.json`; a partial one
+must be deleted (`rclone purge _VIDEOTOOL_SHARED/models/large-v3`) before re-running. `torch`
+is NOT cached — Colab's GPU image ships a CUDA torch already and the `ai` extra doesn't pull
+it (faster-whisper uses CTranslate2).
 
 ## Drive layout: `_VIDEOTOOL_SHARED/`
 
