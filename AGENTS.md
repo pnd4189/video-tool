@@ -119,7 +119,10 @@ Outputs land in `$JOB_DIR/outputs/`:
 - `youtube-16x9.mp4` (and `shorts-9x16.mp4` only if Shorts was requested)
 - `thumbnail-1280x720.jpg`, `thumbnail-candidate-0[1-5].jpg`
 - `description.txt`, `license-report.md`, `quality-report.json`, `package-manifest.json`
-- `captions.srt` + `chapters.json` (only when subtitles on / transcribe ran)
+- `captions.srt` + `chapters.json` (only when subtitles on / transcribe ran). `captions.srt` is
+  RAW (narration-aligned, the burn baseline). When an intro CTA is spliced, `package` also writes
+  `captions.youtube.srt` (shifted by the CTA offset) — **upload THAT one as the YouTube sidecar**,
+  not `captions.srt` (raw lags the video by the CTA duration).
 
 ## Known pitfalls (MUST handle)
 
