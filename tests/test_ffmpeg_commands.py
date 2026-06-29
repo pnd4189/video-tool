@@ -4,6 +4,7 @@ from videotool.core.job_spec import load_job
 from videotool.core.timeline import compile_timeline
 from videotool.render.commands import build_ffmpeg_command
 from videotool.render.profiles import get_profile
+from videotool.render.video_filters import codec_args
 
 
 def test_ffmpeg_command_uses_argument_list() -> None:
@@ -223,3 +224,13 @@ assets:
     command = " ".join(build_ffmpeg_command(timeline, get_profile("libx264-fast"), timeline.outputs[0]).command)
     assert command.count("subtitles=filename=") == 1
     assert "-map [vfull]" in command
+
+
+def test_capped_profile_emits_vbv_ceiling_and_base_profiles_do_not() -> None:
+    # The capped variant carries a VBV ceiling (extra_args) so a long video stays under a
+    # size budget; the base profiles have empty extra_args and must stay unchanged.
+    capped = codec_args(get_profile("libx264-balanced-capped"))
+    assert "-maxrate" in capped and "2800k" in capped
+    assert "-bufsize" in capped and "5600k" in capped
+    assert "-maxrate" not in codec_args(get_profile("libx264-balanced"))
+    assert "-maxrate" not in codec_args(get_profile("libx264-fast"))

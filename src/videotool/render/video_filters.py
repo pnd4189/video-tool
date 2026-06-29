@@ -16,6 +16,7 @@ def codec_args(profile: RenderProfile) -> list[str]:
         args.extend(["-preset", profile.preset])
     if profile.crf is not None:
         args.extend(["-crf", str(profile.crf)])
+    args.extend(profile.extra_args)
     args.extend(["-pix_fmt", "yuv420p"])
     return args
 

@@ -18,6 +18,12 @@ class RenderProfile:
 PROFILES = {
     "libx264-balanced": RenderProfile("libx264-balanced", "libx264", "medium", 20),
     "libx264-fast": RenderProfile("libx264-fast", "libx264", "veryfast", 23),
+    # Same quality as balanced (medium/CRF20) with a VBV ceiling so a long video stays
+    # under a size budget. Peaks cap at maxrate; the long-run average never exceeds it.
+    "libx264-balanced-capped": RenderProfile(
+        "libx264-balanced-capped", "libx264", "medium", 20,
+        extra_args=("-maxrate", "2800k", "-bufsize", "5600k"),
+    ),
 }
 
 
