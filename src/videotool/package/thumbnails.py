@@ -23,7 +23,9 @@ def generate_thumbnail(video_path: Path, output_path: Path, timestamp: float = 1
         str(output_path),
     ]
     try:
-        subprocess.run(command, capture_output=True, text=True, check=True)
+        # errors="replace": ffmpeg echoes input metadata (e.g. ID3 tags in Latin-1) to stderr,
+        # so utf-8 decoding raw ffmpeg output can raise UnicodeDecodeError on non-utf-8 bytes.
+        subprocess.run(command, capture_output=True, text=True, errors="replace", check=True)
     except FileNotFoundError as exc:
         raise DependencyError("ffmpeg was not found. Install FFmpeg 6.1+ and retry.") from exc
     except subprocess.CalledProcessError as exc:

@@ -60,7 +60,9 @@ def measure_integrated_lufs(path: Path) -> float | None:
         "-f", "null", "-",
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=600)
+        # errors="replace": ffmpeg copies input metadata (e.g. Latin-1 ID3 tags) into stderr,
+        # so utf-8 decoding raw ffmpeg output can raise UnicodeDecodeError on non-utf-8 bytes.
+        result = subprocess.run(command, capture_output=True, text=True, errors="replace", check=False, timeout=600)
     except FileNotFoundError as exc:
         raise DependencyError("ffmpeg was not found. Install FFmpeg 6.1+ and retry.") from exc
     except subprocess.TimeoutExpired:
