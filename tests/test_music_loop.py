@@ -8,6 +8,7 @@ from videotool.core.errors import RenderError
 from videotool.core.media_probe import probe_media
 from videotool.render.music_loop import (
     MAX_PLAYS,
+    prepare_scheduled_music,
     prepare_seamless_music,
 )
 
@@ -67,6 +68,34 @@ def test_multiple_tracks_concatenated_then_looped(tmp_path: Path) -> None:
     meta = probe_media(output)
     assert meta.duration is not None
     assert abs(meta.duration - 7.0) < 0.3
+
+
+def test_scheduled_music_covers_target_across_segments(tmp_path: Path) -> None:
+    # Tracks shorter than their windows must loop-fill; total lands exactly on target despite
+    # the acrossfade overlaps between segments.
+    t1, t2, t3 = tmp_path / "t1.flac", tmp_path / "t2.flac", tmp_path / "t3.flac"
+    _synth_tone(t1, 6.0, 330)
+    _synth_tone(t2, 6.0, 550)
+    _synth_tone(t3, 6.0, 440)
+    output = prepare_scheduled_music(
+        [(t1, 15.0, None), (t2, 15.0, -6.0), (t3, 10.0, None)],
+        target_duration=40.0,
+        workspace_root=tmp_path / "ws",
+    )
+    assert output.exists()
+    assert probe_media(output).duration == pytest.approx(40.0, abs=0.2)
+
+
+def test_scheduled_music_single_segment(tmp_path: Path) -> None:
+    track = tmp_path / "solo.flac"
+    _synth_tone(track, 6.0)
+    output = prepare_scheduled_music([(track, 20.0, None)], target_duration=20.0, workspace_root=tmp_path / "ws")
+    assert probe_media(output).duration == pytest.approx(20.0, abs=0.2)
+
+
+def test_scheduled_music_rejects_empty(tmp_path: Path) -> None:
+    with pytest.raises(RenderError):
+        prepare_scheduled_music([], target_duration=10.0, workspace_root=tmp_path / "ws")
 
 
 def test_rejects_non_positive_target(tmp_path: Path) -> None:

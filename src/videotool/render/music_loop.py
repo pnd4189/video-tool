@@ -64,6 +64,79 @@ def prepare_seamless_music(
     return output
 
 
+def prepare_scheduled_music(
+    segments: list[tuple[Path, float, float | None]],
+    target_duration: float,
+    workspace_root: Path,
+    crossfade_seconds: float = DEFAULT_CROSSFADE_SECONDS,
+) -> Path:
+    """Pre-render a scheduled music bed: each (track, seconds, gain_db) segment plays its track
+    for `seconds` (looping a short track / trimming a long one), the segments are crossfaded
+    back-to-back in order, and the result is trimmed to `target_duration` with a fade-out tail.
+    Returns the prepared FLAC. Like prepare_seamless_music the output already spans the whole
+    video, so it drops straight into the render as the single music input.
+
+    `segments` is expected contiguous and ordered (caller resolves the schedule cues, applies any
+    CTA offset, and pads the first/last segment to cover the full timeline)."""
+    if target_duration <= 0:
+        raise RenderError(f"prepare_scheduled_music: target_duration must be positive, got {target_duration}")
+    if not segments:
+        raise RenderError("prepare_scheduled_music: no segments provided")
+    for path, seconds, _ in segments:
+        if seconds <= 0:
+            raise RenderError(f"prepare_scheduled_music: segment duration must be positive: {path} ({seconds})")
+
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    output = workspace_root / "music-schedule.flac"
+    crossfade = min(crossfade_seconds, min(seconds for _, seconds, _ in segments) / 4)
+    # Each acrossfade overlaps two segments by `crossfade`, shortening the total by
+    # (n-1)*crossfade. Pad the last segment by that much so the final atrim lands exactly on
+    # target_duration instead of falling short.
+    segments = list(segments)
+    if len(segments) > 1:
+        path, seconds, gain = segments[-1]
+        segments[-1] = (path, seconds + (len(segments) - 1) * crossfade, gain)
+    _run(_build_schedule_command(segments, output, target_duration, crossfade))
+    return output
+
+
+def _build_schedule_command(
+    segments: list[tuple[Path, float, float | None]], output: Path, target: float, crossfade: float
+) -> list[str]:
+    inputs: list[str] = []
+    for path, seconds, _ in segments:
+        # -stream_loop -1 + -t fills the window from a short track and trims a long one.
+        inputs.extend(["-stream_loop", "-1", "-t", f"{seconds:.3f}", "-i", str(path)])
+
+    filter_parts: list[str] = []
+    for i, (_, _, gain_db) in enumerate(segments):
+        gain = f",volume={gain_db:g}dB" if gain_db is not None else ""
+        filter_parts.append(f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo{gain}[a{i}]")
+
+    current = "a0"
+    for i in range(1, len(segments)):
+        label = f"x{i}" if i < len(segments) - 1 else "joined"
+        filter_parts.append(
+            f"[{current}][a{i}]acrossfade=d={crossfade:.3f}:curve1=tri:curve2=tri[{label}]"
+        )
+        current = label
+
+    fade_start = max(0.0, target - crossfade)
+    filter_parts.append(
+        f"[{current}]atrim=duration={target:.3f},"
+        f"afade=t=out:st={fade_start:.3f}:d={crossfade:.3f}[out]"
+    )
+
+    return [
+        "ffmpeg", "-y", "-hide_banner", "-nostats",
+        *inputs,
+        "-filter_complex", ";".join(filter_parts),
+        "-map", "[out]",
+        "-c:a", "flac", "-compression_level", "5",
+        str(output),
+    ]
+
+
 def _build_sequence(
     music_paths: list[Path], durations: list[float], target: float, crossfade: float
 ) -> list[Path]:

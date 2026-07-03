@@ -13,7 +13,7 @@ from videotool.ai.subtitles import write_srt
 from videotool.assets.library import AssetLibrary, load_asset_index, validate_asset_paths
 from videotool.assets.licenses import raise_on_blocking_issues, validate_asset_policy
 from videotool.assets.reports import write_license_report
-from videotool.core.job_spec import JobSpec, load_job, write_job_template
+from videotool.core.job_spec import JobSpec, MusicCueSpec, load_job, write_job_template
 from videotool.core.errors import ValidationError
 from videotool.core.media_probe import probe_media
 from videotool.core.storyboard import natural_sort_key
@@ -31,7 +31,7 @@ from videotool.package.youtube import (
 from videotool.render.commands import CommandPlan, build_ffmpeg_command
 from videotool.render.cta_compose import compose_voice, offset_chapters, shift_srt
 from videotool.render.executor import RenderExecutor, RenderResult
-from videotool.render.music_loop import prepare_seamless_music
+from videotool.render.music_loop import prepare_scheduled_music, prepare_seamless_music
 from videotool.render.profiles import RenderProfile, get_profile
 from videotool.render.segmented import SegmentedPlan, build_segmented_render
 from videotool.render.workspace import Workspace
@@ -443,11 +443,61 @@ def _stage_music(job: JobSpec, job_path: Path, workspace_root: Path, cta: _CtaRe
     tracks = _resolve_music_tracks(job_path.parent / job.inputs.music)
     if not tracks:
         return None
+    if job.audio.music_schedule:
+        intro_offset = cta.intro_seconds if cta else 0.0
+        segments = _resolve_music_schedule(
+            job.audio.music_schedule, tracks, intro_offset=intro_offset, target_duration=target_duration
+        )
+        return prepare_scheduled_music(
+            segments=segments, target_duration=target_duration, workspace_root=workspace_root
+        )
     return prepare_seamless_music(
         music_paths=tracks,
         target_duration=target_duration,
         workspace_root=workspace_root,
     )
+
+
+def _resolve_track(track: int | str, tracks: list[Path]) -> Path:
+    """Resolve a music-cue track selector (1-based index or filename/stem substring) to a path."""
+    if isinstance(track, int):
+        if not 1 <= track <= len(tracks):
+            raise ValidationError(f"Music cue track index {track} out of range (1..{len(tracks)}).")
+        return tracks[track - 1]
+    needle = track.lower()
+    for path in tracks:
+        if needle in (path.name.lower(), path.stem.lower()) or needle in path.name.lower():
+            return path
+    raise ValidationError(f"Music cue track '{track}' matches no file in the Music folder.")
+
+
+def _resolve_music_schedule(
+    schedule: list[MusicCueSpec], tracks: list[Path], *, intro_offset: float, target_duration: float
+) -> list[tuple[Path, float, float | None]]:
+    """Turn ordered schedule cues into contiguous (track_path, seconds, gain_db) segments that
+    cover [0, target_duration]. Each cue's (offset) start is the point where its track takes over;
+    the previous cue fills up to it, the first fills from 0, and the last fills to the end. Cue
+    times are narration-aligned, so intro_offset (the intro-CTA length) shifts them onto the
+    composed timeline. The authored `end` values are not used for boundaries — starts + target
+    guarantee full, gap-free coverage even if the LLM's end values are loose."""
+    ordered = sorted(schedule, key=lambda cue: cue.start)
+    # Clamp each boundary into [0, target]: a cue starting past the video end collapses to a
+    # zero-length segment (skipped below) instead of over-running the timeline.
+    starts = (
+        [0.0]
+        + [min(cue.start + intro_offset, target_duration) for cue in ordered[1:]]
+        + [target_duration]
+    )
+    segments: list[tuple[Path, float, float | None]] = []
+    for index, cue in enumerate(ordered):
+        seconds = starts[index + 1] - starts[index]
+        if seconds <= 0:
+            # A cue starting at/after the video end contributes nothing; skip it.
+            continue
+        segments.append((_resolve_track(cue.track, tracks), seconds, cue.gain_db))
+    if not segments:
+        raise ValidationError("Music schedule produced no playable segments (all start past the video end).")
+    return segments
 
 
 def _generate_thumbnails(output_dir: Path, expected_videos: list[str]) -> None:

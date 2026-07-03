@@ -100,6 +100,23 @@ class StoryboardSceneSpec(BaseModel):
         return self
 
 
+class MusicCueSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Track selector: 1-based index into the natural-sorted Music/ folder, or a filename /
+    # stem substring. start/end are narration-aligned seconds (the tool applies any CTA offset).
+    track: int | str
+    start: float = Field(ge=0)
+    end: float = Field(gt=0)
+    gain_db: float | None = None
+
+    @model_validator(mode="after")
+    def end_after_start(self) -> "MusicCueSpec":
+        if self.end <= self.start:
+            raise ValueError(f"Music cue end ({self.end}) must be greater than start ({self.start}).")
+        return self
+
+
 class AudioSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -109,6 +126,22 @@ class AudioSpec(BaseModel):
     duck: bool = True
     # When None, the final loudnorm pass is dropped and dB gains become absolute.
     normalize_lufs: float | None = -14.0
+    # Optional per-segment music plan: each cue plays one track over its [start,end] window so
+    # the mood matches the story (calm scene = gentle track, action = faster track). When unset
+    # the whole Music/ folder concats + loops as before. Cues must be time-ordered, non-overlapping.
+    music_schedule: list[MusicCueSpec] | None = None
+
+    @model_validator(mode="after")
+    def schedule_ordered_and_disjoint(self) -> "AudioSpec":
+        if self.music_schedule:
+            ordered = sorted(self.music_schedule, key=lambda cue: cue.start)
+            for earlier, later in zip(ordered, ordered[1:]):
+                if later.start < earlier.end - 1e-6:
+                    raise ValueError(
+                        f"Music cues overlap: cue starting {later.start}s begins before the "
+                        f"previous cue ends ({earlier.end}s)."
+                    )
+        return self
 
 
 class CaptionSpec(BaseModel):
