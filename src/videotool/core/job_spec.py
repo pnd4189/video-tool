@@ -158,6 +158,10 @@ class EnhanceSpec(BaseModel):
     # Atmospheric overlay (rain/snow/bokeh): blends inputs.particle_overlay with screen mode.
     # User supplies the clip; nothing is bundled. Independent of mood.
     atmosphere: bool = False
+    # Burned-subtitle fill colour. "white" (default) keeps the existing libass default so
+    # output stays byte-identical; audio-story jobs seed "yellow" for legibility. Only takes
+    # effect when subtitles are burned (captions.mode=srt-and-burn or subtitles on).
+    subtitle_color: Literal["white", "yellow"] = "white"
 
     def is_on(self, feature: str) -> bool:
         """Resolve a single overlay feature: explicit override wins, else follow the tier."""

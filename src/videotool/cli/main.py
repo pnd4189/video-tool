@@ -92,6 +92,11 @@ def transcribe(
     raise typer.Exit(commands.transcribe(job_path, model, script, device, compute_type))
 
 
+@app.command("chapters-from-srt")
+def chapters_from_srt(job_path: Path) -> None:
+    raise typer.Exit(commands.chapters_from_srt(job_path))
+
+
 @app.command("analyze-audio")
 def analyze_audio(job_path: Path) -> None:
     raise typer.Exit(commands.analyze_audio(job_path))

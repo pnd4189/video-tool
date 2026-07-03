@@ -59,6 +59,8 @@ class Timeline:
     enhance_flicker: bool = False
     enhance_atmosphere: bool = False
     enhance_color_grade: str | None = None
+    # Burned-subtitle fill colour ("white" default, "yellow" for audio-story legibility).
+    enhance_subtitle_color: str = "white"
 
 
 def compile_timeline(
@@ -131,4 +133,5 @@ def compile_timeline(
         enhance_flicker=job.enhance.effect_on("flicker"),
         enhance_atmosphere=job.enhance.atmosphere,
         enhance_color_grade=job.enhance.resolved_color_grade(),
+        enhance_subtitle_color=job.enhance.subtitle_color,
     )

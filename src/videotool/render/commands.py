@@ -76,7 +76,7 @@ def build_ffmpeg_command(timeline: Timeline, profile: RenderProfile, output: Tim
         command.extend(["-map", "0:v:0", "-map", "1:a:0", "-af", af])
     command.extend(codec_args(profile))
     command.extend(metadata_args(timeline))
-    command.extend(["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart"])
+    command.extend(["-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart"])
     command.extend(duration_args)
     command.append(str(output.output_path))
     return CommandPlan(command=command, output_path=output.output_path, preset=output.preset.name)
@@ -136,7 +136,7 @@ def _build_storyboard_command(timeline: Timeline, profile: RenderProfile, output
     command.extend(codec_args(profile))
     command.extend(metadata_args(timeline))
     command.extend([
-        "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+        "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-ac", "2",
         "-movflags", "+faststart",
         # Storyboards concat many segments; raise muxer queue to handle long timelines.
         "-max_muxing_queue_size", "9999",

@@ -117,7 +117,7 @@ def _build_mux_command(timeline: Timeline, profile: RenderProfile, output: Timel
         command.extend(["-c:v", "copy"])
     command.extend(metadata_args(timeline))
     command.extend([
-        "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+        "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-ac", "2",
         "-movflags", "+faststart",
         "-shortest",
     ])

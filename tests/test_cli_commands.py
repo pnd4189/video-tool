@@ -13,6 +13,21 @@ def test_validate_reports_missing_files_for_example_job() -> None:
     assert "Path does not exist" in result.output
 
 
+def test_chapters_from_srt_writes_chapters_json(tmp_path: Path) -> None:
+    (tmp_path / "outputs").mkdir()
+    (tmp_path / "outputs" / "captions.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:03,000\nChương 1: Mở đầu\n\n"
+        "2\n00:05:00,000 --> 00:05:03,000\nChương 2: Diễn biến\n\n"
+        "3\n00:10:00,000 --> 00:10:03,000\nChương 3: Cao trào\n",
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(app, ["chapters-from-srt", str(tmp_path / "job.yaml")])
+    assert result.exit_code == 0
+    written = tmp_path / "outputs" / "chapters.json"
+    assert written.exists()
+    assert '"Chương 1: Mở đầu"' in written.read_text(encoding="utf-8")
+
+
 def test_init_job_creates_template(tmp_path: Path) -> None:
     result = CliRunner().invoke(app, ["init-job", str(tmp_path), "--voice", "voice.wav"])
     assert result.exit_code == 0

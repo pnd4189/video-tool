@@ -12,6 +12,7 @@ from videotool.core.services import (
     run_init_job,
     run_package,
     run_probe,
+    run_chapters_from_srt,
     run_render,
     run_transcribe,
     run_validate,
@@ -193,6 +194,19 @@ def transcribe(
     except (ValueError, VideoToolError) as exc:
         console.print(f"[red]ERROR[/red] {exc}")
         return CONFIG_ERROR
+    return 0
+
+
+def chapters_from_srt(job_path: Path) -> int:
+    try:
+        result = run_chapters_from_srt(job_path)
+    except (ValueError, VideoToolError) as exc:
+        console.print(f"[red]ERROR[/red] {exc}")
+        return CONFIG_ERROR
+    if result is None:
+        console.print("No chapters written (fewer than 3 'Chương N:' markers found in SRT).")
+    else:
+        console.print(f"Wrote {result}")
     return 0
 
 

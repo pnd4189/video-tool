@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, is_dataclass, replace
 from pathlib import Path
 
 from videotool.ai.align_script import align_script_to_transcript, parse_script
-from videotool.core.chapter_timing import derive_chapters
+from videotool.core.chapter_timing import chapters_from_srt, derive_chapters
 from videotool.ai.faster_whisper_adapter import FasterWhisperTranscriber
 from videotool.ai.silence import detect_silence, write_cut_suggestions
 from videotool.ai.subtitles import write_srt
@@ -267,6 +267,26 @@ def run_transcribe(
             json.dumps([{"start": start, "title": title} for start, title in chapters], ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+    return output
+
+
+def run_chapters_from_srt(job_path: Path) -> Path | None:
+    """Derive outputs/chapters.json from a user-provided outputs/captions.srt, with no whisper.
+    This is the default audio-story chapter source once transcribe is dropped from the flow:
+    heading cues ("Chương N: ...") in the SRT supply both the title and the start time.
+    Returns the chapters.json path, or None when fewer than MIN_CHAPTERS markers are found
+    (nothing written — same "skip silently" behaviour as run_transcribe)."""
+    srt_path = job_path.parent / "outputs" / "captions.srt"
+    if not srt_path.exists():
+        raise ValidationError(f"Provided SRT not found (copy it to outputs/captions.srt first): {srt_path}")
+    chapters = chapters_from_srt(srt_path.read_text(encoding="utf-8"))
+    if not chapters:
+        return None
+    output = job_path.parent / "outputs" / "chapters.json"
+    output.write_text(
+        json.dumps([{"start": start, "title": title} for start, title in chapters], ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     return output
 
 

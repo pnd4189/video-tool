@@ -14,7 +14,9 @@ Run the 4-step CLI pipeline below, end-to-end, until an mp4 + package is on disk
 
 User points at a folder containing:
 
-- `voice.wav` / `voice.mp3` / `voice.m4a` — the narration (required)
+- `voice.wav` / `voice.mp3` / `voice.m4a` — the narration (required). **Prefer `.wav`** when several
+  exist (`.wav` > `.m4a` > `.mp3`): lossless + no encoder-delay so the provided SRT stays in sync.
+  Fall back to whatever is present — never fail just because `.wav` is absent.
 - `media/` — images (`.png .jpg .jpeg .webp`) and optional video clips (`.mp4 .mov`)
 - `music/` — optional background music. Point `inputs.music` at the **folder**: all tracks
   inside play back-to-back (natural-sorted by name — prefix `01-`, `02-` to order them) then
@@ -32,18 +34,14 @@ matching `*end*` / `outro` / "ảnh end" → ending image. If absent or genuinel
 (several equally-likely candidates), SKIP that image, render normally, and note the skip in the
 final report. Never block on it.
 
-### Scan & advise FX / mood (do this every job, right after init-job)
-Before rendering, read the story to pick effects — the LLM agent is the classifier, no code:
-read the first ~300 words of `*_vi.txt` + skim `*_image_prompts.txt` + glance at 1–2
-`Image/scene_*.jpg`. Infer a `mood` (clean/melancholy/cozy/horror/action) and, if the scene
-suggests weather/atmosphere, an overlay from `~/.local/share/videotool/overlays/` (mood map in
-the "Atmospheric overlay" decision). Then print ONE proposal line and WAIT for the user to confirm
-which overlay before rendering full, e.g.:
-`Đề xuất: mood=melancholy + atmosphere=rain-fx-011 (truyện bi, tông mưa hợp). Bật full FX? [y / sửa]`.
-- User confirms full → write `enhance.tier: full` (or per-feature) + `enhance.mood` +
-  `enhance.atmosphere: true` + `inputs.particle_overlay` into job.yaml. `parallax` only if asked (expensive).
-- User silent / mood unclear / generic light job → default light (no mood/atmosphere); note it and move on.
-Never block the pipeline waiting on this — propose once, proceed with the default if no answer.
+### Mood / atmosphere FX are OFF by default (2026-07-03)
+`/make-video` does NOT enable mood overlay or atmosphere by default and does NOT propose them.
+Render clean. Only turn them on when the user explicitly asks for FX in the hint — then read the
+story (first ~300 words of `*_vi.txt` + `*_image_prompts.txt`), pick a `mood`
+(clean/melancholy/cozy/horror/action) and, if asked for atmosphere, ONE overlay from
+`~/.local/share/videotool/overlays/`, and write `enhance.tier: full` (or per-feature) +
+`enhance.mood` + `enhance.atmosphere: true` + `inputs.particle_overlay` into job.yaml
+(`parallax` only if asked — expensive). No FX hint → do nothing, do not ask.
 
 ## When assets live on gdrive (rclone mount)
 
@@ -101,14 +99,18 @@ $VT package "$JOB"
 ```
 
 ### Audio-story channel default (e.g. BÌNH THIÊN SÁCH)
-Seed `enhance:{visualizer:true,subtitles:true}` (progress bar removed from all jobs); `inputs.script`=`*_vi.txt`,
-`inputs.description_template`=`_DESCRIPTION_TEMPLATE.txt` (needs `{{CHAPTERS}}`/`{{RECAP_PREV}}`/`{{SUMMARY}}`).
+Seed `enhance:{visualizer:true,subtitles:true,subtitle_color:yellow}` (progress bar removed from all
+jobs; `subtitle_color:yellow` = yellow fill + black outline, audio-story only, for legibility);
+`inputs.script`=`*_vi.txt`, `inputs.description_template`=`_DESCRIPTION_TEMPLATE.txt`
+(needs `{{CHAPTERS}}`/`{{RECAP_PREV}}`/`{{SUMMARY}}`).
 Author `project.recap_previous` (prev tập) + `project.description` (this tập) from vi.txt. CTA: if a
 `CTA voice/` folder exists, set `inputs.intro_cta`/`outro_cta` + `inputs.intro_cta_image`/`outro_cta_image`
 (prefer animated `Intro CTA.mp4`/`Outro CTA.mp4` in that folder if present — tool loops/trims clip to
 voice length; else fall back to thumbnail/ending still) — tool splices at start/end, auto-shifts captions+chapters (adds
-00:00 "Giới thiệu"). Then `transcribe "$JOB" --model "$HOME/.cache/videotool/models/faster-whisper-base"`
-(PATH not bare `base`; slow on long audio; emits `chapters.json`) → `render --preset youtube-16x9`
+00:00 "Giới thiệu"). **Subtitles come from the user-provided SRT, NOT whisper** (2026-07-03): copy the
+supplied `*_vi_qa.srt` → `"$JOB_DIR/outputs/captions.srt"`, then `$VT chapters-from-srt "$JOB"`
+(parses "Chương N:" markers → `chapters.json`; skips silently if <3 markers). `transcribe` is only for
+when NO SRT is provided / cloud-GPU whisper. Then `render --preset youtube-16x9`
 (per-feature enhance drives overlays; NOT `--enhance full` — adds particles) → `package` (renders
 `description.txt`). Paste it into the YouTube description for native chapters.
 
@@ -119,7 +121,7 @@ Outputs land in `$JOB_DIR/outputs/`:
 - `youtube-16x9.mp4` (and `shorts-9x16.mp4` only if Shorts was requested)
 - `thumbnail-1280x720.jpg`, `thumbnail-candidate-0[1-5].jpg`
 - `description.txt`, `license-report.md`, `quality-report.json`, `package-manifest.json`
-- `captions.srt` + `chapters.json` (only when subtitles on / transcribe ran). `captions.srt` is
+- `captions.srt` + `chapters.json` (from the provided SRT via `chapters-from-srt`). `captions.srt` is
   RAW (narration-aligned, the burn baseline). When an intro CTA is spliced, `package` also writes
   `captions.youtube.srt` (shifted by the CTA offset) — **upload THAT one as the YouTube sidecar**,
   not `captions.srt` (raw lags the video by the CTA duration).
@@ -128,14 +130,22 @@ Outputs land in `$JOB_DIR/outputs/`:
 
 1. **`init-job` writes `assets.policy: licensed-only`** (`src/videotool/core/job_spec.py:160`). Validation fails without an asset index. ALWAYS rewrite to `allow-missing-local`.
 2. **`storyboard auto` needs `--videos-dir` to include b-roll clips.** Without it, only images are used. WITH it, clips are interleaved with images by story order (spread across the whole timeline, never bunched) and keep their real duration — pass `--videos-dir "$JOB_DIR/Video"` whenever a Video folder exists. Never drop clips.
-3. **`captions.mode: srt-only` is the init default** — set `mode: off` for light jobs (YouTube auto-CC suffices). For audio-story channel jobs, subtitles come via `enhance.subtitles` + `transcribe` (Whisper `base` IS installed now). `enhance.subtitles` forces caption burn regardless of `captions.mode`.
+3. **`captions.mode: srt-only` is the init default** — set `mode: off` for light jobs (YouTube auto-CC suffices). For audio-story channel jobs, subtitles come via `enhance.subtitles` + the **user-provided SRT** copied to `outputs/captions.srt` (whisper `transcribe` is NOT in the default flow anymore — 2026-07-03). `enhance.subtitles` forces caption burn regardless of `captions.mode`.
 4. **Music loop preparation** (`src/videotool/core/services.py:227`) only fires when `inputs.music` is set. Always include the music path if there's a music file in the folder.
 5. **Render path branches at 40 scenes** (`render.max_inline_scenes`). >40 → segmented path. Light tier uses `-c:v copy` at mux; full tier re-encodes once for overlays. Don't force inline.
+6. **Render's mux step can crash `UnicodeDecodeError` COSMETICALLY when job/project metadata contains Vietnamese** (`render/executor.py:81` reads ffmpeg stdout as strict UTF-8; ffmpeg echoes `-metadata title=…` in Latin-1, and a byte like 0xe1 in "Sách" is an invalid UTF-8 continuation). The mp4 is already fully written BEFORE the crash — `package` was fixed (`947cc00`, decode with `errors=replace`) but render's mux path was not. So: if `render` returns a traceback mentioning `UnicodeDecodeError`/`executor.py:81`/`_run`, do NOT re-render. Verify the artifact instead (`ffprobe` shows full duration + `ffmpeg -v error -i out.mp4 -f null -` decodes clean) and proceed to `package`. Only treat a real failure as a real failure.
 
 ## Confirmed project decisions (do NOT silently reverse)
 
 - **Tier light: no waveform / no self-made subtitles.** Zoompan defeats static detection without re-encode; YouTube auto-CC suffices. Stays the default for generic light jobs. *(Decided 2026-05-28; tier-scoped 2026-05-31.)*
-- **Audio-story channel OVERRIDES the two above: showwaves + subtitles ON, progress bar OFF** (whisper `base` runs); **music bed default −30 dB**; **chapters from transcript (W1)** — `transcribe` emits `chapters.json`, no rendered progress bar (Sweezy-style is viewer-side). *(Decided 2026-05-31.)*
+- **Audio-story channel OVERRIDES the two above: showwaves + subtitles ON, progress bar OFF**; **music bed default −30 dB**. Subtitles + chapters now come from the **user-provided SRT** (see 2026-07-03 below), not whisper; no rendered progress bar (Sweezy-style is viewer-side). *(Decided 2026-05-31; SRT-sourced 2026-07-03.)*
+- **`/make-video` defaults overhaul** *(Decided 2026-07-03)*:
+  - **Provided-SRT, no whisper in default flow.** Copy the user's SRT → `outputs/captions.srt`; `chapters-from-srt` derives `chapters.json` from "Chương N:" markers. `transcribe`/whisper stays only for the no-SRT / cloud-GPU path.
+  - **Mood/atmosphere OFF by default** and NOT proposed — only on explicit FX hint.
+  - **WAV-first voice** (`.wav` > `.m4a` > `.mp3`) for quality + SRT sync; fall back, never fail.
+  - **Yellow subtitles for audio-story only** via `enhance.subtitle_color: yellow` (fill `&H0000FFFF` + black outline). Default `white` keeps other jobs byte-identical. Legibility → retention, not an algorithm reading pixel colour.
+  - **Audio AAC 256k** (was 192k), loudnorm target unchanged at −14 LUFS.
+  - Plan 2 (later): default moderate SFX (auto-burn, 12–15 cue/45min) + music-schedule per story mood. NOT in this change.
 - **Tier full opts into overlays.** `--enhance full` burns existing `outputs/captions.srt`, adds bundled particle/progress/optional waveform, and re-encodes once.
 - **Motion amplitude = 0.30, pan zoom = 1.22** (`src/videotool/render/video_filters.py` `ZOOM_AMPLITUDE` / `PAN_ZOOM`). Bumped up from 0.12 because long-duration images need visible per-second motion. Don't lower without checking with user. *(Decided 2026-05-28.)*
 - **No auto Shorts.** Default render is `youtube-16x9` only; add `shorts-9x16` solely when the
