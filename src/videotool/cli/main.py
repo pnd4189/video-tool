@@ -97,6 +97,11 @@ def chapters_from_srt(job_path: Path) -> None:
     raise typer.Exit(commands.chapters_from_srt(job_path))
 
 
+@app.command("sfx")
+def sfx(job_path: Path) -> None:
+    raise typer.Exit(commands.sfx(job_path))
+
+
 @app.command("analyze-audio")
 def analyze_audio(job_path: Path) -> None:
     raise typer.Exit(commands.analyze_audio(job_path))

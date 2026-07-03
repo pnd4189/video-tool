@@ -32,6 +32,7 @@ from videotool.render.commands import CommandPlan, build_ffmpeg_command
 from videotool.render.cta_compose import compose_voice, offset_chapters, shift_srt
 from videotool.render.executor import RenderExecutor, RenderResult
 from videotool.render.music_loop import prepare_scheduled_music, prepare_seamless_music
+from videotool.render.sfx_mix import mix_sfx_onto
 from videotool.render.profiles import RenderProfile, get_profile
 from videotool.render.segmented import SegmentedPlan, build_segmented_render
 from videotool.render.workspace import Workspace
@@ -290,6 +291,45 @@ def run_chapters_from_srt(job_path: Path) -> Path | None:
     return output
 
 
+def run_sfx(job_path: Path) -> list[Path]:
+    """Mix the job's SFX cues onto each rendered output mp4 (post-process, video stream copied).
+    No-op (returns []) when enhance.sfx is unset, disabled, or has no cues. Cue files are resolved
+    inside the job folder and must not escape it. Run after `render`, before `package`."""
+    job = load_job(job_path)
+    sfx = job.enhance.sfx
+    if sfx is None or not sfx.enabled or not sfx.cues:
+        return []  # cheap no-op before the full path validation
+    _raise_validation_errors(run_validate(job_path))
+    root = job_path.parent.resolve()
+    intro_offset = (
+        (probe_media(root / job.inputs.intro_cta).duration or 0.0) if job.inputs.intro_cta else 0.0
+    )
+    resolved: list[tuple[Path, float, float]] = []
+    for cue in sfx.cues:
+        path = (root / cue.file).resolve()
+        if not path.is_relative_to(root):
+            raise ValidationError(f"SFX cue file escapes the job folder: {cue.file}")
+        if not path.exists():
+            raise ValidationError(f"SFX cue file not found: {cue.file}")
+        resolved.append((path, cue.time, cue.gain_db))
+    output_dir = root / "outputs"
+    master_dir = root / ".videotool" / "sfx-master"
+    processed: list[Path] = []
+    for output in job.outputs:
+        mp4 = output_dir / f"{output.preset}.mp4"
+        if not mp4.exists():
+            continue
+        # Keep a pre-SFX master so re-running `sfx` re-mixes from the clean render instead of
+        # stacking SFX and re-encoding the audio again. First run seeds the master from the mp4.
+        master = master_dir / f"{output.preset}.mp4"
+        if not master.exists():
+            master_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(mp4, master)
+        if mix_sfx_onto(master, mp4, resolved, intro_offset=intro_offset):
+            processed.append(mp4)
+    return processed
+
+
 def run_analyze_audio(job_path: Path) -> Path:
     job = load_job(job_path)
     _raise_validation_errors(run_validate(job_path))
@@ -465,8 +505,12 @@ def _resolve_track(track: int | str, tracks: list[Path]) -> Path:
             raise ValidationError(f"Music cue track index {track} out of range (1..{len(tracks)}).")
         return tracks[track - 1]
     needle = track.lower()
+    # Prefer an exact stem/name match, else fall back to a substring match.
     for path in tracks:
-        if needle in (path.name.lower(), path.stem.lower()) or needle in path.name.lower():
+        if needle in (path.name.lower(), path.stem.lower()):
+            return path
+    for path in tracks:
+        if needle in path.name.lower():
             return path
     raise ValidationError(f"Music cue track '{track}' matches no file in the Music folder.")
 

@@ -28,6 +28,21 @@ def test_chapters_from_srt_writes_chapters_json(tmp_path: Path) -> None:
     assert '"Chương 1: Mở đầu"' in written.read_text(encoding="utf-8")
 
 
+def test_sfx_noop_without_cues(tmp_path: Path) -> None:
+    job_path = tmp_path / "job.yaml"
+    job_path.write_text(
+        "version: 1\n"
+        "project:\n  title: t\n"
+        "inputs:\n  voice: voice.wav\n"
+        "outputs:\n  - preset: youtube-16x9\n"
+        "assets:\n  policy: allow-missing-local\n",
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(app, ["sfx", str(job_path)])
+    assert result.exit_code == 0
+    assert "No SFX mixed" in result.output
+
+
 def test_init_job_creates_template(tmp_path: Path) -> None:
     result = CliRunner().invoke(app, ["init-job", str(tmp_path), "--voice", "voice.wav"])
     assert result.exit_code == 0

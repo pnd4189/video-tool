@@ -111,8 +111,23 @@ voice length; else fall back to thumbnail/ending still) — tool splices at star
 supplied `*_vi_qa.srt` → `"$JOB_DIR/outputs/captions.srt"`, then `$VT chapters-from-srt "$JOB"`
 (parses "Chương N:" markers → `chapters.json`; skips silently if <3 markers). `transcribe` is only for
 when NO SRT is provided / cloud-GPU whisper. Then `render --preset youtube-16x9`
-(per-feature enhance drives overlays; NOT `--enhance full` — adds particles) → `package` (renders
-`description.txt`). Paste it into the YouTube description for native chapters.
+(per-feature enhance drives overlays; NOT `--enhance full` — adds particles) → **`$VT sfx "$JOB"`**
+(mixes SFX cues onto the mp4, remux `-c:v copy`) → `package` (renders `description.txt`). Paste it
+into the YouTube description for native chapters.
+
+**Music-schedule + SFX cues are authored by the LLM into job.yaml** (tool just renders them):
+- **`audio.music_schedule`** — read `*_vi_qa.txt` + `*_music_prompts.txt` (N mood blocks, **block i ↔
+  track i** natural-sorted in `Music/`) + chapter seconds from the SRT markers. Map each track to the
+  chapter range whose mood fits (calm/scenery → gentle track, action/climax → faster track). Write cues
+  `{track, start, end, gain_db?}` narration-aligned covering the whole voice. Unset → concat+loop.
+- **`enhance.sfx.cues`** (default ON, ~12–15 cue/45min, auto-burn, NO montage) — scan
+  `outputs/captions.srt` for action keywords, **drop metaphorical homographs** (grep context first),
+  **pin by char-interpolation inside the cue** (`start + frac*(end-start)`, NOT segment-start, NOT
+  re-transcribe). Copy chosen files from `~/.local/share/videotool/sfx/<pack>/` (kiếm hiệp→`binh-thien`,
+  ma hài→`dao-si`) into `<job>/sfx/` and reference them job-relative. Point-SFX −8..−15 dB under voice,
+  NOT ducked; cluster at climax, ~0 at exposition, ≥30–60s between clusters, ≤3/10s, skip first 30s /
+  last 25s (CTA regions). Beds/ambient not built yet. See memories `sfx-insertion-workflow` /
+  `sfx-library-location`.
 
 Render Shorts ONLY when the user asks (hint contains "shorts"/"9x16"/"--all"): add
 `{preset: shorts-9x16}` to `outputs:` in job.yaml, then `$VT render "$JOB" --all`.
@@ -145,7 +160,11 @@ Outputs land in `$JOB_DIR/outputs/`:
   - **WAV-first voice** (`.wav` > `.m4a` > `.mp3`) for quality + SRT sync; fall back, never fail.
   - **Yellow subtitles for audio-story only** via `enhance.subtitle_color: yellow` (fill `&H0000FFFF` + black outline). Default `white` keeps other jobs byte-identical. Legibility → retention, not an algorithm reading pixel colour.
   - **Audio AAC 256k** (was 192k), loudnorm target unchanged at −14 LUFS.
-  - Plan 2 (later): default moderate SFX (auto-burn, 12–15 cue/45min) + music-schedule per story mood. NOT in this change.
+  - **Music-schedule + default SFX** (Plan 2): `audio.music_schedule` places a track per story-mood
+    span (unset → concat+loop); `enhance.sfx` mixes one-shot SFX onto the mp4 post-process
+    (`$VT sfx`, `-c:v copy`, NOT ducked, `amix normalize=0`+limiter), default ON ~12–15 cue/45min,
+    auto-burn no montage. Cue times narration-aligned; tool shifts by the intro-CTA offset. SFX
+    beds/ambient deferred.
 - **Tier full opts into overlays.** `--enhance full` burns existing `outputs/captions.srt`, adds bundled particle/progress/optional waveform, and re-encodes once.
 - **Motion amplitude = 0.30, pan zoom = 1.22** (`src/videotool/render/video_filters.py` `ZOOM_AMPLITUDE` / `PAN_ZOOM`). Bumped up from 0.12 because long-duration images need visible per-second motion. Don't lower without checking with user. *(Decided 2026-05-28.)*
 - **No auto Shorts.** Default render is `youtube-16x9` only; add `shorts-9x16` solely when the

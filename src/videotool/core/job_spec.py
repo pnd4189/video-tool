@@ -165,6 +165,25 @@ MOODS: dict[str, dict[str, object]] = {
 GROUP_A_EFFECTS = ("vignette", "grain", "glow", "flicker")
 
 
+class SfxCueSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Narration-aligned trigger time (seconds); the tool applies any intro-CTA offset. `file` is
+    # resolved relative to the job folder (copy chosen SFX into <job>/sfx/ so nothing escapes it).
+    time: float = Field(ge=0)
+    file: Path
+    gain_db: float = 0.0
+
+
+class SfxSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    # Optional palette hint (e.g. binh-thien / dao-si) — informational; the cues already name files.
+    pack: str | None = None
+    cues: list[SfxCueSpec] = Field(default_factory=list)
+
+
 class EnhanceSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -195,6 +214,9 @@ class EnhanceSpec(BaseModel):
     # output stays byte-identical; audio-story jobs seed "yellow" for legibility. Only takes
     # effect when subtitles are burned (captions.mode=srt-and-burn or subtitles on).
     subtitle_color: Literal["white", "yellow"] = "white"
+    # One-shot sound effects mixed onto the rendered mp4 as a post-process (not ducked).
+    # None / disabled / no cues = no-op. Cues are authored by the /make-video flow.
+    sfx: SfxSpec | None = None
 
     def is_on(self, feature: str) -> bool:
         """Resolve a single overlay feature: explicit override wins, else follow the tier."""
