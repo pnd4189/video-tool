@@ -138,6 +138,11 @@ def caption_filter(timeline: Timeline, output: TimelineOutput) -> str:
         f"FontSize={output.preset.subtitle_font_size},Bold=1,"
         f"Outline=3,Shadow=1,Alignment=2,MarginV={margin_v}"
     )
+    # Only append colour keys for a non-default fill so "white" keeps libass defaults (and
+    # existing output byte-identical). ASS colour is &HAABBGGRR; yellow = fill FFFF00 + black
+    # outline for maximum legibility on video.
+    if getattr(timeline, "enhance_subtitle_color", "white") == "yellow":
+        style += ",PrimaryColour=&H0000FFFF,OutlineColour=&H00000000"
     return f"subtitles=filename='{_escape_filter_value(srt_path)}':force_style='{style}'"
 
 

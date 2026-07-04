@@ -16,6 +16,14 @@ def test_ffmpeg_command_uses_argument_list() -> None:
     assert plan.output_path.name == "youtube-16x9.mp4"
 
 
+def test_audio_encoded_at_256k() -> None:
+    path = Path("examples/jobs/basic-audio-first/job.yaml")
+    timeline = compile_timeline(load_job(path), path, duration=3.0)
+    command = build_ffmpeg_command(timeline, get_profile("libx264-balanced"), timeline.outputs[0]).command
+    assert "256k" in command
+    assert "192k" not in command
+
+
 def test_static_motion_letterboxes_and_pads_voice_for_outro(tmp_path: Path) -> None:
     job_path = tmp_path / "job.yaml"
     (tmp_path / "media").mkdir()

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from videotool.core.timeline import Timeline, TimelineOutput
-from videotool.render.overlay_graph import build_video_overlay, particle_input_args
+from videotool.render.overlay_graph import build_video_overlay, caption_filter, particle_input_args
 from videotool.core.presets import get_preset
 
 
@@ -86,6 +86,19 @@ def test_overlay_graph_passthrough_when_layers_off() -> None:
     )
 
     assert graph == "[vbase]format=yuv420p[v]"
+
+
+def test_caption_filter_default_white_has_no_colour_keys() -> None:
+    # Default subtitle_color keeps libass defaults so existing output stays byte-identical.
+    graph = caption_filter(_timeline(), _output())
+    assert "subtitles=" in graph
+    assert "PrimaryColour" not in graph and "OutlineColour" not in graph
+
+
+def test_caption_filter_yellow_sets_ass_colours() -> None:
+    graph = caption_filter(_timeline(enhance_subtitle_color="yellow"), _output())
+    assert "PrimaryColour=&H0000FFFF" in graph
+    assert "OutlineColour=&H00000000" in graph
 
 
 def test_particle_input_uses_bundled_default() -> None:

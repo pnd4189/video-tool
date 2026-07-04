@@ -12,7 +12,9 @@ from videotool.core.services import (
     run_init_job,
     run_package,
     run_probe,
+    run_chapters_from_srt,
     run_render,
+    run_sfx,
     run_transcribe,
     run_validate,
     to_json,
@@ -193,6 +195,35 @@ def transcribe(
     except (ValueError, VideoToolError) as exc:
         console.print(f"[red]ERROR[/red] {exc}")
         return CONFIG_ERROR
+    return 0
+
+
+def chapters_from_srt(job_path: Path) -> int:
+    try:
+        result = run_chapters_from_srt(job_path)
+    except (ValueError, VideoToolError) as exc:
+        console.print(f"[red]ERROR[/red] {exc}")
+        return CONFIG_ERROR
+    if result is None:
+        console.print("No chapters written (fewer than 3 'Chương N:' markers found in SRT).")
+    else:
+        console.print(f"Wrote {result}")
+    return 0
+
+
+def sfx(job_path: Path) -> int:
+    try:
+        processed = run_sfx(job_path)
+    except DependencyError as exc:
+        console.print(f"[red]MISSING DEPENDENCY[/red] {exc}")
+        return DEPENDENCY_ERROR
+    except (ValueError, VideoToolError) as exc:
+        console.print(f"[red]ERROR[/red] {exc}")
+        return CONFIG_ERROR
+    if not processed:
+        console.print("No SFX mixed (enhance.sfx unset/disabled or no cues).")
+    else:
+        console.print(f"Mixed SFX onto {len(processed)} output(s): {', '.join(p.name for p in processed)}")
     return 0
 
 

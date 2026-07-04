@@ -76,6 +76,9 @@ def test_segmented_plan_has_one_clip_per_scene_plus_mux(tmp_path: Path) -> None:
     )
     assert len(plan.scene_commands) == 5
     assert plan.mux_command[0] == "ffmpeg"
+    # Mux step encodes audio at 256k (raised from 192k for listenability).
+    assert "256k" in plan.mux_command
+    assert "192k" not in plan.mux_command
 
 
 def test_each_scene_clip_is_video_only_and_distinct(tmp_path: Path) -> None:

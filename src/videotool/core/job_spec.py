@@ -100,6 +100,23 @@ class StoryboardSceneSpec(BaseModel):
         return self
 
 
+class MusicCueSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Track selector: 1-based index into the natural-sorted Music/ folder, or a filename /
+    # stem substring. start/end are narration-aligned seconds (the tool applies any CTA offset).
+    track: int | str
+    start: float = Field(ge=0)
+    end: float = Field(gt=0)
+    gain_db: float | None = None
+
+    @model_validator(mode="after")
+    def end_after_start(self) -> "MusicCueSpec":
+        if self.end <= self.start:
+            raise ValueError(f"Music cue end ({self.end}) must be greater than start ({self.start}).")
+        return self
+
+
 class AudioSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -109,6 +126,22 @@ class AudioSpec(BaseModel):
     duck: bool = True
     # When None, the final loudnorm pass is dropped and dB gains become absolute.
     normalize_lufs: float | None = -14.0
+    # Optional per-segment music plan: each cue plays one track over its [start,end] window so
+    # the mood matches the story (calm scene = gentle track, action = faster track). When unset
+    # the whole Music/ folder concats + loops as before. Cues must be time-ordered, non-overlapping.
+    music_schedule: list[MusicCueSpec] | None = None
+
+    @model_validator(mode="after")
+    def schedule_ordered_and_disjoint(self) -> "AudioSpec":
+        if self.music_schedule:
+            ordered = sorted(self.music_schedule, key=lambda cue: cue.start)
+            for earlier, later in zip(ordered, ordered[1:]):
+                if later.start < earlier.end - 1e-6:
+                    raise ValueError(
+                        f"Music cues overlap: cue starting {later.start}s begins before the "
+                        f"previous cue ends ({earlier.end}s)."
+                    )
+        return self
 
 
 class CaptionSpec(BaseModel):
@@ -130,6 +163,25 @@ MOODS: dict[str, dict[str, object]] = {
     "action": {"vignette": False, "grain": True, "glow": False, "flicker": True, "color_grade": "neutral"},
 }
 GROUP_A_EFFECTS = ("vignette", "grain", "glow", "flicker")
+
+
+class SfxCueSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Narration-aligned trigger time (seconds); the tool applies any intro-CTA offset. `file` is
+    # resolved relative to the job folder (copy chosen SFX into <job>/sfx/ so nothing escapes it).
+    time: float = Field(ge=0)
+    file: Path
+    gain_db: float = 0.0
+
+
+class SfxSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    # Optional palette hint (e.g. binh-thien / dao-si) — informational; the cues already name files.
+    pack: str | None = None
+    cues: list[SfxCueSpec] = Field(default_factory=list)
 
 
 class EnhanceSpec(BaseModel):
@@ -158,6 +210,13 @@ class EnhanceSpec(BaseModel):
     # Atmospheric overlay (rain/snow/bokeh): blends inputs.particle_overlay with screen mode.
     # User supplies the clip; nothing is bundled. Independent of mood.
     atmosphere: bool = False
+    # Burned-subtitle fill colour. "white" (default) keeps the existing libass default so
+    # output stays byte-identical; audio-story jobs seed "yellow" for legibility. Only takes
+    # effect when subtitles are burned (captions.mode=srt-and-burn or subtitles on).
+    subtitle_color: Literal["white", "yellow"] = "white"
+    # One-shot sound effects mixed onto the rendered mp4 as a post-process (not ducked).
+    # None / disabled / no cues = no-op. Cues are authored by the /make-video flow.
+    sfx: SfxSpec | None = None
 
     def is_on(self, feature: str) -> bool:
         """Resolve a single overlay feature: explicit override wins, else follow the tier."""

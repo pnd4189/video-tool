@@ -11,6 +11,55 @@ def test_valid_basic_job_loads() -> None:
     assert [item.preset for item in job.outputs] == ["youtube-16x9", "shorts-9x16"]
 
 
+def test_subtitle_color_defaults_white_and_accepts_yellow() -> None:
+    # Old job.yaml without the field still validates and defaults to white (no output change).
+    job = load_job(Path("examples/jobs/basic-audio-first/job.yaml"))
+    assert job.enhance.subtitle_color == "white"
+    yellow = JobSpec.model_validate(
+        {
+            "version": 1,
+            "project": {"title": "y"},
+            "inputs": {"voice": "voice.wav"},
+            "outputs": [{"preset": "youtube-16x9"}],
+            "enhance": {"subtitle_color": "yellow"},
+        }
+    )
+    assert yellow.enhance.subtitle_color == "yellow"
+
+
+def test_invalid_subtitle_color_rejected() -> None:
+    with pytest.raises(ValueError):
+        JobSpec.model_validate(
+            {
+                "version": 1,
+                "project": {"title": "bad"},
+                "inputs": {"voice": "voice.wav"},
+                "outputs": [{"preset": "youtube-16x9"}],
+                "enhance": {"subtitle_color": "blue"},
+            }
+        )
+
+
+def test_music_schedule_defaults_none_and_rejects_overlap() -> None:
+    job = load_job(Path("examples/jobs/basic-audio-first/job.yaml"))
+    assert job.audio.music_schedule is None  # backward-compat: old jobs concat+loop as before
+    with pytest.raises(ValueError, match="overlap"):
+        JobSpec.model_validate(
+            {
+                "version": 1,
+                "project": {"title": "m"},
+                "inputs": {"voice": "voice.wav"},
+                "outputs": [{"preset": "youtube-16x9"}],
+                "audio": {
+                    "music_schedule": [
+                        {"track": 1, "start": 0, "end": 300},
+                        {"track": 2, "start": 200, "end": 500},
+                    ]
+                },
+            }
+        )
+
+
 def test_unknown_preset_has_clear_error() -> None:
     with pytest.raises(ValueError, match="Unknown preset"):
         JobSpec.model_validate(

@@ -6,14 +6,14 @@ from dataclasses import asdict, dataclass, is_dataclass, replace
 from pathlib import Path
 
 from videotool.ai.align_script import align_script_to_transcript, parse_script
-from videotool.core.chapter_timing import derive_chapters
+from videotool.core.chapter_timing import chapters_from_srt, derive_chapters
 from videotool.ai.faster_whisper_adapter import FasterWhisperTranscriber
 from videotool.ai.silence import detect_silence, write_cut_suggestions
 from videotool.ai.subtitles import write_srt
 from videotool.assets.library import AssetLibrary, load_asset_index, validate_asset_paths
 from videotool.assets.licenses import raise_on_blocking_issues, validate_asset_policy
 from videotool.assets.reports import write_license_report
-from videotool.core.job_spec import JobSpec, load_job, write_job_template
+from videotool.core.job_spec import JobSpec, MusicCueSpec, load_job, write_job_template
 from videotool.core.errors import ValidationError
 from videotool.core.media_probe import probe_media
 from videotool.core.storyboard import natural_sort_key
@@ -31,7 +31,8 @@ from videotool.package.youtube import (
 from videotool.render.commands import CommandPlan, build_ffmpeg_command
 from videotool.render.cta_compose import compose_voice, offset_chapters, shift_srt
 from videotool.render.executor import RenderExecutor, RenderResult
-from videotool.render.music_loop import prepare_seamless_music
+from videotool.render.music_loop import prepare_scheduled_music, prepare_seamless_music
+from videotool.render.sfx_mix import mix_sfx_onto
 from videotool.render.profiles import RenderProfile, get_profile
 from videotool.render.segmented import SegmentedPlan, build_segmented_render
 from videotool.render.workspace import Workspace
@@ -270,6 +271,65 @@ def run_transcribe(
     return output
 
 
+def run_chapters_from_srt(job_path: Path) -> Path | None:
+    """Derive outputs/chapters.json from a user-provided outputs/captions.srt, with no whisper.
+    This is the default audio-story chapter source once transcribe is dropped from the flow:
+    heading cues ("Chương N: ...") in the SRT supply both the title and the start time.
+    Returns the chapters.json path, or None when fewer than MIN_CHAPTERS markers are found
+    (nothing written — same "skip silently" behaviour as run_transcribe)."""
+    srt_path = job_path.parent / "outputs" / "captions.srt"
+    if not srt_path.exists():
+        raise ValidationError(f"Provided SRT not found (copy it to outputs/captions.srt first): {srt_path}")
+    chapters = chapters_from_srt(srt_path.read_text(encoding="utf-8"))
+    if not chapters:
+        return None
+    output = job_path.parent / "outputs" / "chapters.json"
+    output.write_text(
+        json.dumps([{"start": start, "title": title} for start, title in chapters], ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return output
+
+
+def run_sfx(job_path: Path) -> list[Path]:
+    """Mix the job's SFX cues onto each rendered output mp4 (post-process, video stream copied).
+    No-op (returns []) when enhance.sfx is unset, disabled, or has no cues. Cue files are resolved
+    inside the job folder and must not escape it. Run after `render`, before `package`."""
+    job = load_job(job_path)
+    sfx = job.enhance.sfx
+    if sfx is None or not sfx.enabled or not sfx.cues:
+        return []  # cheap no-op before the full path validation
+    _raise_validation_errors(run_validate(job_path))
+    root = job_path.parent.resolve()
+    intro_offset = (
+        (probe_media(root / job.inputs.intro_cta).duration or 0.0) if job.inputs.intro_cta else 0.0
+    )
+    resolved: list[tuple[Path, float, float]] = []
+    for cue in sfx.cues:
+        path = (root / cue.file).resolve()
+        if not path.is_relative_to(root):
+            raise ValidationError(f"SFX cue file escapes the job folder: {cue.file}")
+        if not path.exists():
+            raise ValidationError(f"SFX cue file not found: {cue.file}")
+        resolved.append((path, cue.time, cue.gain_db))
+    output_dir = root / "outputs"
+    master_dir = root / ".videotool" / "sfx-master"
+    processed: list[Path] = []
+    for output in job.outputs:
+        mp4 = output_dir / f"{output.preset}.mp4"
+        if not mp4.exists():
+            continue
+        # Keep a pre-SFX master so re-running `sfx` re-mixes from the clean render instead of
+        # stacking SFX and re-encoding the audio again. First run seeds the master from the mp4.
+        master = master_dir / f"{output.preset}.mp4"
+        if not master.exists():
+            master_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(mp4, master)
+        if mix_sfx_onto(master, mp4, resolved, intro_offset=intro_offset):
+            processed.append(mp4)
+    return processed
+
+
 def run_analyze_audio(job_path: Path) -> Path:
     job = load_job(job_path)
     _raise_validation_errors(run_validate(job_path))
@@ -423,11 +483,65 @@ def _stage_music(job: JobSpec, job_path: Path, workspace_root: Path, cta: _CtaRe
     tracks = _resolve_music_tracks(job_path.parent / job.inputs.music)
     if not tracks:
         return None
+    if job.audio.music_schedule:
+        intro_offset = cta.intro_seconds if cta else 0.0
+        segments = _resolve_music_schedule(
+            job.audio.music_schedule, tracks, intro_offset=intro_offset, target_duration=target_duration
+        )
+        return prepare_scheduled_music(
+            segments=segments, target_duration=target_duration, workspace_root=workspace_root
+        )
     return prepare_seamless_music(
         music_paths=tracks,
         target_duration=target_duration,
         workspace_root=workspace_root,
     )
+
+
+def _resolve_track(track: int | str, tracks: list[Path]) -> Path:
+    """Resolve a music-cue track selector (1-based index or filename/stem substring) to a path."""
+    if isinstance(track, int):
+        if not 1 <= track <= len(tracks):
+            raise ValidationError(f"Music cue track index {track} out of range (1..{len(tracks)}).")
+        return tracks[track - 1]
+    needle = track.lower()
+    # Prefer an exact stem/name match, else fall back to a substring match.
+    for path in tracks:
+        if needle in (path.name.lower(), path.stem.lower()):
+            return path
+    for path in tracks:
+        if needle in path.name.lower():
+            return path
+    raise ValidationError(f"Music cue track '{track}' matches no file in the Music folder.")
+
+
+def _resolve_music_schedule(
+    schedule: list[MusicCueSpec], tracks: list[Path], *, intro_offset: float, target_duration: float
+) -> list[tuple[Path, float, float | None]]:
+    """Turn ordered schedule cues into contiguous (track_path, seconds, gain_db) segments that
+    cover [0, target_duration]. Each cue's (offset) start is the point where its track takes over;
+    the previous cue fills up to it, the first fills from 0, and the last fills to the end. Cue
+    times are narration-aligned, so intro_offset (the intro-CTA length) shifts them onto the
+    composed timeline. The authored `end` values are not used for boundaries — starts + target
+    guarantee full, gap-free coverage even if the LLM's end values are loose."""
+    ordered = sorted(schedule, key=lambda cue: cue.start)
+    # Clamp each boundary into [0, target]: a cue starting past the video end collapses to a
+    # zero-length segment (skipped below) instead of over-running the timeline.
+    starts = (
+        [0.0]
+        + [min(cue.start + intro_offset, target_duration) for cue in ordered[1:]]
+        + [target_duration]
+    )
+    segments: list[tuple[Path, float, float | None]] = []
+    for index, cue in enumerate(ordered):
+        seconds = starts[index + 1] - starts[index]
+        if seconds <= 0:
+            # A cue starting at/after the video end contributes nothing; skip it.
+            continue
+        segments.append((_resolve_track(cue.track, tracks), seconds, cue.gain_db))
+    if not segments:
+        raise ValidationError("Music schedule produced no playable segments (all start past the video end).")
+    return segments
 
 
 def _generate_thumbnails(output_dir: Path, expected_videos: list[str]) -> None:
