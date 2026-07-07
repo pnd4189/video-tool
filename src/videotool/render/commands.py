@@ -146,13 +146,17 @@ def _build_storyboard_command(timeline: Timeline, profile: RenderProfile, output
     return CommandPlan(command=command, output_path=output.output_path, preset=output.preset.name)
 
 
+_WIRED_ENCODERS = ("libx264", "h264_nvenc")
+
+
 def _reject_unsupported_profile(profile: RenderProfile) -> None:
-    if not profile.encoder.startswith("libx264"):
+    if not profile.encoder.startswith(_WIRED_ENCODERS):
         # VAAPI/AV1/HEVC profiles need -vaapi_device, -hwaccel and hwupload filter chain
-        # that this builder does not emit yet. Fail clearly instead of producing a broken command.
+        # that this builder does not emit yet. libx264 and h264_nvenc both ride the plain
+        # codec_args path. Fail clearly instead of producing a broken command.
         raise NotImplementedError(
             f"Encoder '{profile.encoder}' is not wired in this build. "
-            "Use 'libx264-balanced' or 'libx264-fast'."
+            "Use a libx264-* or h264_nvenc-* profile."
         )
 
 

@@ -241,6 +241,44 @@ def test_light_tier_subtitle_override_burns_segmented_subtitles(tmp_path: Path) 
     assert "-map [v]" in mux
 
 
+def test_nvenc_segmented_scene_clips_use_gpu_encoder(tmp_path: Path) -> None:
+    # The segmented path is what cloud renders take (>40 scenes / forced). Each scene clip
+    # must encode with h264_nvenc and no -crf — this path never calls _reject_unsupported_profile,
+    # so it is the one that actually needs asserting.
+    job_path = _write_job(tmp_path, 3)
+    timeline = _timeline(job_path, 6.0)
+    plan = build_segmented_render(
+        timeline,
+        get_profile("h264_nvenc-capped"),
+        timeline.outputs[0],
+        clips_dir=tmp_path / "clips",
+        concat_list_path=tmp_path / "concat.txt",
+    )
+    for scene in plan.scene_commands:
+        assert "h264_nvenc" in scene.command
+        assert "-crf" not in scene.command
+    # Light-tier mux concatenates the already-NVENC clips with -c:v copy (no re-encode).
+    assert "-c:v copy" in " ".join(plan.mux_command)
+
+
+def test_nvenc_segmented_full_tier_mux_reencodes_with_gpu(tmp_path: Path) -> None:
+    # When the mux re-encodes (full tier / overlay), it routes through codec_args too and
+    # must use the GPU encoder without -crf.
+    job_path = _write_job(tmp_path, 3, enhance="enhance:\n  tier: full\n  visualizer: false\n")
+    timeline = _timeline(job_path, 6.0)
+    plan = build_segmented_render(
+        timeline,
+        get_profile("h264_nvenc-capped"),
+        timeline.outputs[0],
+        clips_dir=tmp_path / "clips",
+        concat_list_path=tmp_path / "concat.txt",
+    )
+    mux = plan.mux_command
+    assert "-c:v copy" not in " ".join(mux)
+    assert "h264_nvenc" in mux
+    assert "-crf" not in mux
+
+
 def test_routing_segmented_above_threshold(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     job_path = _write_job(tmp_path, 6, max_inline=3)
     monkeypatch.setattr(services, "probe_media", lambda path: SimpleNamespace(duration=12.0))

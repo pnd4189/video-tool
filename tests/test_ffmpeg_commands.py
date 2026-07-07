@@ -242,3 +242,47 @@ def test_capped_profile_emits_vbv_ceiling_and_base_profiles_do_not() -> None:
     assert "-bufsize" in capped and "5600k" in capped
     assert "-maxrate" not in codec_args(get_profile("libx264-balanced"))
     assert "-maxrate" not in codec_args(get_profile("libx264-fast"))
+
+
+def test_nvenc_profile_emits_gpu_codec_with_cq_and_no_crf() -> None:
+    # h264_nvenc rides the generic codec_args path: GPU codec, -preset p5 (ffmpeg >= 4.4),
+    # quality via -cq (not -crf, which NVENC does not accept), plus the VBV size ceiling.
+    args = codec_args(get_profile("h264_nvenc-capped"))
+    assert "-c:v" in args and "h264_nvenc" in args
+    assert "-preset" in args and "p5" in args
+    assert "-cq" in args and "23" in args
+    assert "-maxrate" in args and "2800k" in args
+    assert "-crf" not in args
+    # Default profile is untouched: still libx264 with a CRF, no NVENC.
+    default = codec_args(get_profile("libx264-balanced"))
+    assert "h264_nvenc" not in default
+    assert "-crf" in default
+
+
+def test_inline_command_wires_nvenc_encoder(tmp_path: Path) -> None:
+    job_path = tmp_path / "job.yaml"
+    (tmp_path / "media").mkdir()
+    (tmp_path / "media" / "scene-001.png").write_bytes(b"fake")
+    job_path.write_text(
+        """
+version: 1
+project:
+  title: nvenc-inline
+inputs:
+  voice: voice.wav
+  media_dir: media
+outputs:
+  - preset: youtube-16x9
+storyboard:
+  - scene: 1
+    image: media/scene-001.png
+    duration: 2.0
+assets:
+  policy: allow-missing-local
+""",
+        encoding="utf-8",
+    )
+    timeline = compile_timeline(load_job(job_path), job_path, duration=2.0)
+    command = build_ffmpeg_command(timeline, get_profile("h264_nvenc-capped"), timeline.outputs[0]).command
+    assert "h264_nvenc" in command
+    assert "-crf" not in command

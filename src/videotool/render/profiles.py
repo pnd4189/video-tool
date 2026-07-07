@@ -12,9 +12,10 @@ class RenderProfile:
     extra_args: tuple[str, ...] = ()
 
 
-# Only libx264 profiles are wired end-to-end in V1. VAAPI/AV1/HEVC profiles need
-# -vaapi_device + hwupload filter chains that the command builder does not emit yet;
-# they were removed to prevent producing broken ffmpeg commands at runtime.
+# libx264 (CPU) profiles are wired end-to-end. h264_nvenc rides the same generic codec_args
+# path (no CRF, quality via -cq in extra_args, no hwupload filter chain) so it needs no builder
+# work; it is meant for cloud GPU runners (T4). VAAPI/AV1/HEVC still need -vaapi_device +
+# hwupload chains the builder does not emit and stay rejected.
 PROFILES = {
     "libx264-balanced": RenderProfile("libx264-balanced", "libx264", "medium", 20),
     "libx264-fast": RenderProfile("libx264-fast", "libx264", "veryfast", 23),
@@ -23,6 +24,13 @@ PROFILES = {
     "libx264-balanced-capped": RenderProfile(
         "libx264-balanced-capped", "libx264", "medium", 20,
         extra_args=("-maxrate", "2800k", "-bufsize", "5600k"),
+    ),
+    # GPU encode for cloud runners. VBR + -cq holds quality; the same VBV ceiling as the
+    # capped x264 profile keeps a long video under the size budget. -preset p5 needs ffmpeg
+    # >= 4.4 (the p1-p7 namespace); the cloud runner probes for it before selecting this.
+    "h264_nvenc-capped": RenderProfile(
+        "h264_nvenc-capped", "h264_nvenc", "p5", None,
+        extra_args=("-rc", "vbr", "-cq", "23", "-maxrate", "2800k", "-bufsize", "5600k"),
     ),
 }
 
