@@ -46,10 +46,13 @@ rclone copy Colab/videotool_cloud.py      gdrive:_VIDEOTOOL_SHARED/
    The Colab cell copies it back into place; on Kaggle store the whole `rclone.conf` body as a
    Secret named `RCLONE_CONF` (it is written to session disk at runtime — ephemeral, scope the
    remote to your channel Drive subtree).
-3. **LLM key** in Secrets — on Kaggle (primary) load `ANTHROPIC_API_KEY` (Haiku, best quality +
-   its credit). `GEMINI_API_KEY` or `GLM_API_KEY` also work. Kaggle: Add-ons → Secrets. Colab:
-   `userdata`. `choose_provider()` auto-selects best-first from whatever keys are present. Keys
-   stay in memory, are never written to disk/Drive, and are redacted from logs.
+3. **LLM access.** On Kaggle (primary) the credit is the **Benchmarks Model Proxy** — no personal
+   key. The runner cell runs `kaggle benchmarks init -y`, which writes a `.env` with an
+   OpenAI-compatible `MODEL_PROXY_URL` + short-lived `MODEL_PROXY_API_KEY`; cloud_director's
+   `kaggle` provider reads it and calls `google/gemini-3.5-flash` (override via `KAGGLE_PROXY_MODEL`).
+   On Colab (no proxy) add a `GEMINI_API_KEY` (or `ANTHROPIC_API_KEY` / `GLM_API_KEY`) to `userdata`.
+   `choose_provider()` prefers the Kaggle proxy, then direct keys. The proxy key + any Secret stay
+   in memory, are never written to Drive, and are redacted from logs.
 4. **SFX library mirror.** Stage the local packs to the shared Drive once so the director can copy
    chosen cues into the job:
    ```bash
@@ -100,13 +103,23 @@ checkpoint for a retry instead of losing the render.
 
 ## Provider notes
 
-Quality order for this workload (Vietnamese SFX-homograph filtering + description prose):
-**Anthropic Haiku > Gemini 2.5 Flash > GLM**. `choose_provider()` auto-picks best-first from the
-keys present, so on Kaggle just load `ANTHROPIC_API_KEY` and it selects Haiku.
+**Empirical probe on this Kaggle account (2026-07-11)** — Model Proxy, Vietnamese homograph SFX
+task ("kiếm" sword-clash vs "kiếm tiền" earn-money):
 
-- **Anthropic** (`claude-haiku-4-5`) — **default on Kaggle** (its LLM credit + highest quality of
-  the three). Set `ANTHROPIC_API_KEY` in Kaggle Secrets; `provider='anthropic'`.
-- **Gemini** (`gemini-2.5-flash`) — free via Google AI Studio, no card. Good fallback / Colab
-  option (`GEMINI_API_KEY`, `provider='gemini'`). Note: the retired `gemini-2.0` is not used.
-- **GLM** (`glm-4-flash`, `open.bigmodel.cn`) — cheapest, weakest on Vietnamese nuance. Verify your
-  GLM coding-plan ToS permits raw API calls before relying on it.
+| Model (proxy slug) | Result |
+|--------------------|--------|
+| `google/gemini-3.5-flash` | ✅ 200, homograph correct, ~1.1s |
+| `google/gemini-3-flash-preview` | 200 but JSON truncated |
+| `anthropic/claude-haiku-4-5`, `claude-sonnet-4-6` | 503 (not reachable) |
+| `google/gemini-2.5-flash`, `zai/glm-5`, `qwen3-235b` | 503 |
+| `deepseek-v3.2` | 429 (heavy load) |
+
+→ **`google/gemini-3.5-flash` via the Kaggle Model Proxy is the pick.** Flagship slugs (Opus 4.8,
+GPT-5.5, Gemini-Pro) 503 on this proxy today; re-probe with the notebook's probe cell if that changes.
+
+- **kaggle** (Model Proxy, `google/gemini-3.5-flash`) — **default on Kaggle.** Provisioned by
+  `kaggle benchmarks init`; no personal key. Override the model with `KAGGLE_PROXY_MODEL`.
+- **gemini** (`gemini-2.5-flash`, `generativelanguage.googleapis.com`) — Colab option, free via
+  Google AI Studio (`GEMINI_API_KEY`). The retired `gemini-2.0` is not used.
+- **anthropic** (`claude-haiku-4-5`) / **glm** (`glm-4-flash`) — direct-key fallbacks; set the
+  matching Secret and pass `provider=`. (Both 503 on the Kaggle proxy right now.)

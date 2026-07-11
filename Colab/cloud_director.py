@@ -15,9 +15,11 @@ Design decisions (see plan 260707-0855):
 - Idempotent (red-team H4): a pinned, already-validated job.yaml makes `run()` a NO-OP, so a
   resume never re-calls the LLM. The pin marker lives at `<job>/.videotool/.cloud_director.pinned`;
   the runner restores it (with job.yaml) from the Drive checkpoint before resuming.
-- Providers (best-quality-first): anthropic (Claude Haiku 4.5) > gemini (2.5-flash) > glm
-  (glm-4-flash). Kaggle is the primary render platform (ships an Anthropic credit), so it
-  defaults to Haiku — the strongest of the three at Vietnamese homograph filtering + prose.
+- Providers: on Kaggle (primary) the LLM credit is the Benchmarks **Model Proxy** — an OpenAI-
+  compatible endpoint provisioned by `kaggle benchmarks init` (no personal key). Probing this
+  account (2026-07-11) showed the Anthropic/GLM/Qwen slugs 503 and only `google/gemini-3.5-flash`
+  up + correct on the Vietnamese homograph test, so that is the proxy default. Direct-key
+  providers (gemini / anthropic / glm) remain for Colab or as fallback.
 - Keys are read from platform Secrets, kept in memory, never written to disk/Drive, redacted
   from every log line (M11).
 - LLM output is never trusted: JSON-schema shaped + code-side post-filters cap SFX density /
@@ -45,6 +47,13 @@ import videotool_cloud as vc
 
 FORCE_SEGMENTED_INLINE_CAP = 1  # schema forbids 0; 1 forces segmented for any >=2-scene job.
 PIN_MARKER = Path(".videotool") / ".cloud_director.pinned"
+
+# Kaggle's Benchmarks Model Proxy: `kaggle benchmarks init` writes a `.env` with an OpenAI-compatible
+# endpoint (MODEL_PROXY_URL) + a short-lived key (MODEL_PROXY_API_KEY), funded by the account's LLM
+# credit. This is the PRIMARY provider on Kaggle — no personal API key needed. Empirically (probe
+# 2026-07-11 on this account) the Anthropic/GLM/Qwen slugs 503 and only google/gemini-3.5-flash is
+# reliably up AND passes the Vietnamese homograph SFX test, so it is the default proxy model.
+KAGGLE_PROXY_DEFAULT_MODEL = "google/gemini-3.5-flash"
 
 # SFX density / placement rules (AGENTS.md audio-story defaults).
 SFX_MAX_CUES = 15
@@ -94,27 +103,55 @@ def get_secret(name: str) -> str | None:
     return os.environ.get(name) or None
 
 
-def choose_provider(preferred: str | None = None) -> str:
-    """Pick an LLM provider whose key is present, best-quality-first (Haiku > Gemini > GLM) for
-    the Vietnamese SFX-homograph / description work. `preferred` overrides. Kaggle is the primary
-    render platform and ships an Anthropic credit, so ANTHROPIC_API_KEY auto-selects Haiku. Raises
-    with an actionable message when no key is available."""
-    order = [preferred] if preferred else []
-    order += ["anthropic", "gemini", "glm"]
+def _kaggle_proxy() -> tuple[str, str] | None:
+    """Return (base_url, key) for the Kaggle Model Proxy, or None when it isn't provisioned.
+
+    Reads MODEL_PROXY_URL / MODEL_PROXY_API_KEY from the environment first, then from a `.env` in
+    the cwd (what `kaggle benchmarks init` writes). No personal key — the account's credit funds it.
+    """
+    url, key = os.environ.get("MODEL_PROXY_URL"), os.environ.get("MODEL_PROXY_API_KEY")
+    if not (url and key):
+        env = Path(".env")
+        if env.exists():
+            values = dict(
+                line.split("=", 1)
+                for line in env.read_text().splitlines()
+                if "=" in line and not line.lstrip().startswith("#")
+            )
+            url = url or values.get("MODEL_PROXY_URL", "").strip()
+            key = key or values.get("MODEL_PROXY_API_KEY", "").strip()
+    return (url.rstrip("/"), key) if url and key else None
+
+
+def _provider_available(provider: str) -> bool:
+    if provider == "kaggle":
+        return _kaggle_proxy() is not None
     key_for = {"glm": "GLM_API_KEY", "gemini": "GEMINI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+    return bool(get_secret(key_for.get(provider, "")))
+
+
+def choose_provider(preferred: str | None = None) -> str:
+    """Pick an available provider. Kaggle's Model Proxy wins by default (its credit funds a strong
+    model — google/gemini-3.5-flash — with no personal key); then direct keys, best-quality-first.
+    `preferred` overrides. Raises with an actionable message when nothing is available."""
+    order = [preferred] if preferred else []
+    order += ["kaggle", "anthropic", "gemini", "glm"]
     for provider in order:
-        if provider and get_secret(key_for[provider]):
+        if provider and _provider_available(provider):
             return provider
     raise DirectorError(
-        "No LLM key found. Add one of GLM_API_KEY / GEMINI_API_KEY / ANTHROPIC_API_KEY to "
-        "Colab (userdata) or Kaggle (Add-ons -> Secrets)."
+        "No LLM available. On Kaggle run `kaggle benchmarks init -y` first (Model Proxy), or add a "
+        "GEMINI_API_KEY / ANTHROPIC_API_KEY / GLM_API_KEY Secret (Colab userdata / Kaggle Secrets)."
     )
 
 
 def _redact(text: str) -> str:
     """Strip any live key value out of a string before it reaches a log/exception."""
-    for name in _REDACT_KEYS:
-        value = get_secret(name)
+    values = [get_secret(name) for name in _REDACT_KEYS]
+    proxy = _kaggle_proxy()
+    if proxy:
+        values.append(proxy[1])  # the short-lived Model Proxy key
+    for value in values:
         if value and value in text:
             text = text.replace(value, "***REDACTED***")
     return text
@@ -139,6 +176,22 @@ def call_llm(provider: str, system: str, user: str) -> str:
     Providers share this signature so the caller stays provider-agnostic; JSON parsing +
     schema checks happen in `_ask_json`.
     """
+    if provider == "kaggle":
+        proxy = _kaggle_proxy()
+        if not proxy:
+            raise DirectorError("Kaggle Model Proxy not provisioned; run `kaggle benchmarks init -y` first.")
+        base, key = proxy
+        model = os.environ.get("KAGGLE_PROXY_MODEL", KAGGLE_PROXY_DEFAULT_MODEL)
+        data = _http_json(
+            f"{base}/openapi/v1/chat/completions",
+            {
+                "model": model,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                "temperature": 0.3,
+            },
+            {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        )
+        return data["choices"][0]["message"]["content"]
     if provider == "glm":
         key = get_secret("GLM_API_KEY")
         data = _http_json(
@@ -216,18 +269,18 @@ _PROBE_USER = (
 )
 
 
-def probe_providers(providers: tuple[str, ...] = ("anthropic", "gemini", "glm")) -> list[dict]:
-    """Empirically test each provider whose key is present against a real pipeline task (Vietnamese
-    homograph SFX selection). Prints a table + a recommendation. Run this in the Kaggle/Colab notebook
-    with your Secrets loaded — it uses YOUR keys/credit and answers 'which LLM is best for this
-    pipeline' with evidence, not guesswork. Returns per-provider result dicts."""
+def probe_providers(providers: tuple[str, ...] = ("kaggle", "anthropic", "gemini", "glm")) -> list[dict]:
+    """Empirically test each available provider against a real pipeline task (Vietnamese homograph
+    SFX selection). Prints a table + a recommendation. Run this in the Kaggle/Colab notebook (after
+    `kaggle benchmarks init` for the proxy, or with your Secrets loaded) — it uses YOUR credit and
+    answers 'which LLM is best for this pipeline' with evidence, not guesswork. On this account
+    (probe 2026-07-11) kaggle=google/gemini-3.5-flash was the only one up + correct."""
     import time  # noqa: PLC0415
 
-    key_for = {"glm": "GLM_API_KEY", "gemini": "GEMINI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
     results = []
     for provider in providers:
-        if not get_secret(key_for[provider]):
-            print(f"  {provider:10} — no key, skipped")
+        if not _provider_available(provider):
+            print(f"  {provider:10} — not available, skipped")
             continue
         row: dict = {"provider": provider}
         try:
@@ -246,7 +299,7 @@ def probe_providers(providers: tuple[str, ...] = ("anthropic", "gemini", "glm"))
         results.append(row)
 
     passed = [r for r in results if r.get("homograph_ok")]
-    order = {"anthropic": 0, "gemini": 1, "glm": 2}
+    order = {"kaggle": 0, "anthropic": 1, "gemini": 2, "glm": 3}
     best = min(passed, key=lambda r: (order.get(r["provider"], 9), r["latency_s"]), default=None)
     if best:
         print(f"\nRecommended provider for this pipeline: {best['provider']} "
