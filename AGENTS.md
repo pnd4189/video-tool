@@ -229,11 +229,15 @@ Outputs land in `$JOB_DIR/outputs/`:
   flow is byte-unchanged; the only shared-code touch is the additive `h264_nvenc-capped` profile.
   Cloud job.yaml sets `render.max_inline_scenes: 1` to force the resumable segmented path (schema
   forbids 0). Resume = rerun the cell (restores pinned job.yaml + ffprobe-verified clips, no LLM
-  call). **Kaggle = primary**; its LLM credit is the Benchmarks **Model Proxy** (`kaggle benchmarks
-  init` → OpenAI-compatible `.env`), and cloud_director's `kaggle` provider uses
-  `google/gemini-3.5-flash` (probed 2026-07-11: Anthropic/GLM/Qwen slugs 503, only that one up +
-  correct). See `docs/cloud-render-setup.md`. Pain driving this = machine occupation/heat, not speed
-  (a T4 can be slower wall-clock — CPU filters bottleneck). *(Decided 2026-07-11.)*
+  call). **Claude Code CLI is the director**: Claude reads the folder + authors a `creative.yaml`
+  (music_schedule, SFX cues, mood, atmosphere overlay, description) locally — same intelligent work
+  as local `/make-video`, incl. confirming the overlay with the user — then the render box just runs
+  the deterministic pre-steps + `apply_creative` + NVENC render. **No LLM on the render box.** The
+  on-box LLM (Kaggle Model Proxy `google/gemini-3.5-flash`; probed 2026-07-11 as the only slug that
+  worked) survives only as an `autonomous=True` fallback for notebook-without-Claude. **Kaggle =
+  primary** (4 vCPU > Colab 2; T4×2 gives NO render speedup — 1 ffmpeg uses 1 GPU; filters are the
+  CPU bottleneck), **Colab = fallback on quota**. See `docs/cloud-render-setup.md`. Pain driving
+  this = machine occupation/heat, not speed. *(Decided 2026-07-11.)*
 
 ## Input format the user gives
 

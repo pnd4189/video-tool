@@ -1,12 +1,18 @@
-"""LLM orchestrator for the cloud render path — the notebook-side replacement for the
-Claude-authored steps of `/make-video`.
+"""job.yaml assembler for the cloud render path — turns a staged asset folder into a validated,
+pinned `job.yaml` for the Kaggle/Colab render box.
 
-Given a staged job folder (voice, Image/, Video/, Music/, `*_vi_qa.{txt,srt}`,
-`*_music_prompts.txt`, description template, CTA folder) this authors a complete
-audio-story `job.yaml` — deterministic pre-steps (init/storyboard/SRT/chapters/CTA
-detection) plus four LLM tasks (music_schedule, SFX cues, description+recap, chapters
-fallback) — then hard-gates it (`videotool validate` + encoder/SFX pre-render checks the
-CLI does NOT cover) BEFORE any GPU time is spent.
+Architecture (revised 2026-07-11): **Claude Code CLI is the director.** Claude (Opus) reads the
+folder and authors a small `creative.yaml` (music_schedule, SFX cues, mood, atmosphere overlay,
+description/recap) locally — the same intelligent work it does for the local `/make-video`,
+including confirming the overlay with the user. The render box just runs the DETERMINISTIC
+pre-steps (init/storyboard/SRT/chapters/parallax/CTA-detection) and `apply_creative()` — **no LLM
+runs on the render box.** Then it hard-gates the result (`videotool validate` + encoder/SFX/overlay
+pre-render checks the CLI does NOT cover) BEFORE any GPU time.
+
+The on-box LLM tasks (music_schedule/SFX/description via the Kaggle Model Proxy or a direct key)
+survive as an `autonomous=True` FALLBACK for running the notebook without Claude in the loop — but
+they author lower-quality output (the probe showed only `google/gemini-3.5-flash` even works on the
+Kaggle proxy), so the Claude-authored `creative.yaml` path is the default.
 
 Design decisions (see plan 260707-0855):
 - `render.max_inline_scenes: 1` forces the resumable segmented render path. The plan wrote
@@ -385,11 +391,16 @@ def _detect_intro_ending_cta(job_dir: Path, data: dict) -> None:
 
 
 def _first_match(folder: Path, stems: tuple[str, ...]) -> Path | None:
-    files = [p for p in folder.iterdir() if p.suffix.lower() in (".mp4", ".mov", ".wav", ".mp3", ".m4a")]
-    for stem in stems:
-        for p in files:
-            if stem in p.name.lower():
-                return p
+    """Find a CTA clip by stem, preferring an animated video (voice baked, e.g. ĐẠO SĨ's
+    `cta-intro.mp4`) over a bare audio file — a plain `sorted()` would pick `cta-intro-voice.mp3`
+    first because '-' < '.'. Video across all stems wins, then audio."""
+    video = sorted(p for p in folder.iterdir() if p.suffix.lower() in (".mp4", ".mov"))
+    audio = sorted(p for p in folder.iterdir() if p.suffix.lower() in (".wav", ".mp3", ".m4a"))
+    for group in (video, audio):
+        for stem in stems:
+            for p in group:
+                if stem in p.name.lower():
+                    return p
     return None
 
 
@@ -628,6 +639,14 @@ def pre_render_checks(job_dir: Path, job_yaml: Path) -> None:
         if not path.exists():
             raise DirectorError(f"SFX cue file missing: {cue['file']}")
 
+    overlay = data.get("inputs", {}).get("particle_overlay")
+    if overlay:
+        path = (job_dir / overlay).resolve()
+        if not path.is_relative_to(job_dir):
+            raise DirectorError(f"particle_overlay escapes job folder: {overlay}")
+        if not path.exists():
+            raise DirectorError(f"particle_overlay file missing: {overlay}")
+
 
 def _known_profiles() -> set[str]:
     """The render profiles the installed videotool accepts (import if available, else the
@@ -640,6 +659,85 @@ def _known_profiles() -> set[str]:
         return {"libx264-balanced", "libx264-fast", "libx264-balanced-capped", "h264_nvenc-capped"}
 
 
+# -- Claude-authored creative merge (DEFAULT path — no on-Kaggle LLM) --------------------
+
+
+DEFAULT_OVERLAY_LIBRARY = Path.home() / ".local/share/videotool/overlays"
+
+
+def apply_creative(
+    job_dir: Path,
+    data: dict,
+    creative: dict,
+    sfx_library: Path,
+    overlay_library: Path,
+) -> None:
+    """Merge a Claude Code CLI-authored `creative.yaml` into the deterministic job.yaml — the
+    DEFAULT authoring path. Claude (Opus) does the intelligent work locally (music_schedule, SFX
+    cue selection with VN homograph filtering, mood + atmosphere overlay, description/recap) and
+    this just applies it, copying the NAMED sfx + overlay files from the staged libraries into the
+    job folder. No LLM runs on the render box.
+
+    creative.yaml shape (all keys optional):
+        audio: {music_schedule: [{track,start,end,gain_db?}, ...]}
+        enhance:
+            mood: cozy            # clean|melancholy|cozy|horror|action
+            grain: false          # default false — grain eats the capped bitrate budget
+            overlay: fireflies-gen-01.mp4   # filename in the overlay library -> copied into job
+            sfx: {pack: dao-si, cues: [{time, file, gain_db?}, ...]}
+        project: {description: "...", recap_previous: "..."}
+    """
+    if creative.get("audio", {}).get("music_schedule"):
+        data.setdefault("audio", {})["music_schedule"] = creative["audio"]["music_schedule"]
+
+    proj = creative.get("project", {})
+    if proj.get("description"):
+        data.setdefault("project", {})["description"] = proj["description"]
+    if proj.get("recap_previous"):
+        data.setdefault("project", {})["recap_previous"] = proj["recap_previous"]
+
+    enh = creative.get("enhance", {})
+    denh = data.setdefault("enhance", {})
+    if enh.get("mood"):
+        denh["mood"] = enh["mood"]
+        # Grain (auto-on for most moods) balloons a capped H264's quality/size — keep it off unless
+        # explicitly asked (memory: melancholy-grain-bitrate-blowup).
+        denh["grain"] = enh.get("grain", False)
+    for key in ("vignette", "glow", "flicker", "color_grade"):
+        if key in enh:
+            denh[key] = enh[key]
+
+    overlay = enh.get("overlay")
+    if overlay:
+        src = Path(overlay_library) / overlay
+        if not src.exists():
+            raise DirectorError(f"overlay '{overlay}' not found in library {overlay_library}")
+        shutil.copy(src, job_dir / src.name)  # validation requires the overlay INSIDE the job
+        data.setdefault("inputs", {})["particle_overlay"] = src.name
+        denh["atmosphere"] = True
+
+    sfx = enh.get("sfx")
+    if sfx and sfx.get("cues"):
+        pack = sfx.get("pack") or _infer_pack(job_dir)
+        pack_dir = Path(sfx_library) / pack
+        dest = job_dir / "sfx"
+        dest.mkdir(exist_ok=True)
+        final = []
+        for cue in _filter_sfx_cues(
+            [{"time": c["time"], "file": Path(c["file"]).name} for c in sfx["cues"]],
+            {p.name for p in pack_dir.glob("*")},
+            max((t for t, _ in _srt_lines(job_dir)), default=1e9),
+        ):
+            src = pack_dir / cue["file"]
+            if not src.exists():
+                raise DirectorError(f"sfx cue '{cue['file']}' not found in pack {pack_dir}")
+            shutil.copy(src, dest / cue["file"])
+            gain = next((c.get("gain_db") for c in sfx["cues"] if Path(c["file"]).name == cue["file"]), None)
+            final.append({"time": round(cue["time"], 2), "file": f"sfx/{cue['file']}", "gain_db": gain if gain is not None else SFX_GAIN_DB})
+        if final:
+            denh["sfx"] = {"enabled": True, "pack": pack, "cues": final}
+
+
 # -- Orchestrator ------------------------------------------------------------------------
 
 
@@ -649,15 +747,21 @@ def _write_job(job_yaml: Path, data: dict) -> None:
 
 def run(
     job_dir: str | Path,
+    creative_path: str | Path | None = None,
     provider: str | None = None,
     sfx_library: str | Path = Path.home() / ".local/share/videotool/sfx",
+    overlay_library: str | Path = DEFAULT_OVERLAY_LIBRARY,
     sfx_pack: str | None = None,
-    no_llm: bool = False,
+    autonomous: bool = False,
 ) -> Path:
-    """Author + validate a complete job.yaml. Idempotent: a pinned job.yaml short-circuits.
+    """Author + validate a complete job.yaml, then pin it. Idempotent: a pinned job.yaml
+    short-circuits (resume makes no work).
 
-    Returns the job.yaml path. On the first run it pins the validated job.yaml so a resume
-    (which restores the pin from the Drive checkpoint) becomes a NO-OP — no LLM, no network.
+    Three authoring modes, in priority order:
+    1. `creative_path` present  -> DEFAULT: apply the Claude Code CLI-authored creative.yaml (no LLM).
+    2. `autonomous=True`        -> FALLBACK: the on-box LLM authors it (Kaggle Model Proxy / a key).
+       Use only when running the notebook WITHOUT Claude in the loop.
+    3. neither                  -> deterministic job.yaml only (no music_schedule / sfx / FX).
     """
     job_dir = Path(job_dir)
     job_yaml = job_dir / "job.yaml"
@@ -667,15 +771,22 @@ def run(
 
     data = prepare_job(job_dir)
 
-    if not no_llm:
+    creative = None
+    if creative_path and Path(creative_path).exists():
+        creative = yaml.safe_load(Path(creative_path).read_text(encoding="utf-8")) or {}
+
+    if creative is not None:
+        print(f"cloud_director: applying Claude-authored creative from {creative_path} (no LLM).")
+        apply_creative(job_dir, data, creative, Path(sfx_library), Path(overlay_library))
+    elif autonomous:
         provider = choose_provider(provider)
-        print(f"cloud_director: provider={provider}")
+        print(f"cloud_director: AUTONOMOUS fallback, on-box LLM provider={provider}")
         author_music_schedule(provider, job_dir, data)
         author_sfx_cues(provider, job_dir, data, Path(sfx_library), sfx_pack)
         author_description(provider, job_dir, data)
         author_chapters_fallback(provider, job_dir, data)
     else:
-        print("cloud_director: --no-llm, deterministic job.yaml only (no music_schedule/sfx/description).")
+        print("cloud_director: deterministic job.yaml only (no creative.yaml, not autonomous).")
 
     _write_job(job_yaml, data)
     pre_render_checks(job_dir, job_yaml)
@@ -689,11 +800,13 @@ def run(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Author a cloud-render job.yaml with an LLM.")
+    parser = argparse.ArgumentParser(description="Assemble a cloud-render job.yaml.")
     parser.add_argument("job_dir")
-    parser.add_argument("--provider", choices=["glm", "gemini", "anthropic"], default=None)
+    parser.add_argument("--creative", default=None, help="path to a Claude-authored creative.yaml (default path)")
+    parser.add_argument("--autonomous", action="store_true", help="fallback: let the on-box LLM author it")
+    parser.add_argument("--provider", choices=["kaggle", "glm", "gemini", "anthropic"], default=None)
     parser.add_argument("--sfx-library", default=str(Path.home() / ".local/share/videotool/sfx"))
+    parser.add_argument("--overlay-library", default=str(DEFAULT_OVERLAY_LIBRARY))
     parser.add_argument("--sfx-pack", default=None)
-    parser.add_argument("--no-llm", action="store_true", help="deterministic pipeline only (testable without keys)")
     args = parser.parse_args()
-    run(args.job_dir, args.provider, args.sfx_library, args.sfx_pack, args.no_llm)
+    run(args.job_dir, args.creative, args.provider, args.sfx_library, args.overlay_library, args.sfx_pack, args.autonomous)

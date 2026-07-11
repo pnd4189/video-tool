@@ -257,14 +257,23 @@ def render_job(
     source_remote: str,
     output_remote: str,
     checkpoint_remote: str,
+    creative_remote: str | None = None,
     provider: str | None = None,
+    autonomous: bool = False,
     sfx_library: str | Path = Path.home() / ".local/share/videotool/sfx",
+    overlay_library: str | Path = Path.home() / ".local/share/videotool/overlays",
     local_job: str | Path = "/content/job",
     repo_ref: str | None = None,
     allow_cpu: bool = False,
 ) -> None:
     """Full cloud render. `*_remote` are rclone specs (e.g. `gdrive:path`). Idempotent: rerun
-    after a disconnect resumes from the verified checkpoint with no LLM call and no re-encode."""
+    after a disconnect resumes from the verified checkpoint with no LLM call and no re-encode.
+
+    `creative_remote` = rclone spec of the Claude Code CLI-authored `creative.yaml` (music_schedule,
+    SFX cues, mood, atmosphere overlay, description). When set (the normal path) the render box runs
+    NO LLM — Claude did the authoring. `autonomous=True` is the fallback (on-box LLM) for notebook
+    runs with no Claude in the loop.
+    """
     import cloud_director  # noqa: PLC0415
 
     vc.setup(repo_ref=repo_ref or vc.DEFAULT_REPO_REF)
@@ -274,7 +283,14 @@ def render_job(
     job_yaml = local_job / "job.yaml"
     resumed = restore_checkpoint(checkpoint_remote, local_job)
     if not resumed:
-        cloud_director.run(local_job, provider=provider, sfx_library=sfx_library)
+        creative_path = None
+        if creative_remote:
+            creative_path = local_job / "creative.yaml"
+            _rclone(["copyto", creative_remote, str(creative_path)])
+        cloud_director.run(
+            local_job, creative_path=creative_path, provider=provider,
+            autonomous=autonomous, sfx_library=sfx_library, overlay_library=overlay_library,
+        )
         parallax = local_job / "Parallax"
         if parallax.exists():
             vc._run_cli(["parallax-link", str(job_yaml), "--clips-dir", str(parallax)])
@@ -338,13 +354,17 @@ if __name__ == "__main__":
     parser.add_argument("source_remote", help="rclone spec of the source asset folder, e.g. gdrive:.../CHAP N")
     parser.add_argument("output_remote", help="rclone spec of the Output/ folder, e.g. gdrive:.../CHAP N/Output")
     parser.add_argument("checkpoint_remote", help="rclone spec of the checkpoint dir, e.g. gdrive:_VIDEOTOOL_SHARED/checkpoints/CHAP-N")
-    parser.add_argument("--provider", choices=["glm", "gemini", "anthropic"], default=None)
+    parser.add_argument("--creative", default=None, help="rclone spec of the Claude-authored creative.yaml")
+    parser.add_argument("--autonomous", action="store_true", help="fallback: on-box LLM authors job.yaml (no Claude)")
+    parser.add_argument("--provider", choices=["kaggle", "glm", "gemini", "anthropic"], default=None)
     parser.add_argument("--sfx-library", default=str(Path.home() / ".local/share/videotool/sfx"))
+    parser.add_argument("--overlay-library", default=str(Path.home() / ".local/share/videotool/overlays"))
     parser.add_argument("--repo-ref", default=None, help="pin to a commit SHA (git+https://.../video-tool@<sha>)")
     parser.add_argument("--allow-cpu", action="store_true", help="fall back to capped x264 when NVENC is absent")
     args = parser.parse_args()
     render_job(
         args.source_remote, args.output_remote, args.checkpoint_remote,
-        provider=args.provider, sfx_library=args.sfx_library,
+        creative_remote=args.creative, provider=args.provider, autonomous=args.autonomous,
+        sfx_library=args.sfx_library, overlay_library=args.overlay_library,
         repo_ref=args.repo_ref, allow_cpu=args.allow_cpu,
     )
