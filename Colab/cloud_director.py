@@ -15,6 +15,9 @@ Design decisions (see plan 260707-0855):
 - Idempotent (red-team H4): a pinned, already-validated job.yaml makes `run()` a NO-OP, so a
   resume never re-calls the LLM. The pin marker lives at `<job>/.videotool/.cloud_director.pinned`;
   the runner restores it (with job.yaml) from the Drive checkpoint before resuming.
+- Providers (best-quality-first): anthropic (Claude Haiku 4.5) > gemini (2.5-flash) > glm
+  (glm-4-flash). Kaggle is the primary render platform (ships an Anthropic credit), so it
+  defaults to Haiku — the strongest of the three at Vietnamese homograph filtering + prose.
 - Keys are read from platform Secrets, kept in memory, never written to disk/Drive, redacted
   from every log line (M11).
 - LLM output is never trusted: JSON-schema shaped + code-side post-filters cap SFX density /
@@ -92,10 +95,12 @@ def get_secret(name: str) -> str | None:
 
 
 def choose_provider(preferred: str | None = None) -> str:
-    """Pick an LLM provider whose key is present. Colab defaults to glm, Kaggle to gemini;
-    `preferred` overrides. Raises with an actionable message when no key is available."""
+    """Pick an LLM provider whose key is present, best-quality-first (Haiku > Gemini > GLM) for
+    the Vietnamese SFX-homograph / description work. `preferred` overrides. Kaggle is the primary
+    render platform and ships an Anthropic credit, so ANTHROPIC_API_KEY auto-selects Haiku. Raises
+    with an actionable message when no key is available."""
     order = [preferred] if preferred else []
-    order += ["glm", "gemini", "anthropic"]
+    order += ["anthropic", "gemini", "glm"]
     key_for = {"glm": "GLM_API_KEY", "gemini": "GEMINI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
     for provider in order:
         if provider and get_secret(key_for[provider]):
@@ -149,8 +154,9 @@ def call_llm(provider: str, system: str, user: str) -> str:
         return data["choices"][0]["message"]["content"]
     if provider == "gemini":
         key = get_secret("GEMINI_API_KEY")
+        # gemini-2.5-flash: the 2.0 line was retired June 2026. 2.5-flash keeps JSON mode + a free tier.
         data = _http_json(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}",
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
             {
                 "contents": [{"parts": [{"text": user}]}],
                 "systemInstruction": {"parts": [{"text": system}]},

@@ -10,6 +10,10 @@ when the pain is machine occupation / heat, not when you need the fastest wall-c
 vCPU can bottleneck the CPU zoompan/scale filters; NVENC only removes encode cost). See the
 throughput report from phase-4 validation for go/no-go numbers.
 
+**Kaggle is the primary render platform** (no separate LLM key to source — it ships an Anthropic
+credit, and its 4 vCPU beats Colab's 2 for the CPU filter graph). Colab is the backup. Both share
+the same modules and Drive folders.
+
 Distinct from `cloud-gpu-whisper-setup.md`, which offloads **only** transcription. This offloads
 the entire render.
 
@@ -42,9 +46,10 @@ rclone copy Colab/videotool_cloud.py      gdrive:_VIDEOTOOL_SHARED/
    The Colab cell copies it back into place; on Kaggle store the whole `rclone.conf` body as a
    Secret named `RCLONE_CONF` (it is written to session disk at runtime — ephemeral, scope the
    remote to your channel Drive subtree).
-3. **LLM key** in Secrets — one of `GLM_API_KEY` (Colab default), `GEMINI_API_KEY` (Kaggle
-   default), or `ANTHROPIC_API_KEY`. Colab: `userdata`. Kaggle: Add-ons → Secrets. Keys stay in
-   memory, are never written to disk/Drive, and are redacted from logs.
+3. **LLM key** in Secrets — on Kaggle (primary) load `ANTHROPIC_API_KEY` (Haiku, best quality +
+   its credit). `GEMINI_API_KEY` or `GLM_API_KEY` also work. Kaggle: Add-ons → Secrets. Colab:
+   `userdata`. `choose_provider()` auto-selects best-first from whatever keys are present. Keys
+   stay in memory, are never written to disk/Drive, and are redacted from logs.
 4. **SFX library mirror.** Stage the local packs to the shared Drive once so the director can copy
    chosen cues into the job:
    ```bash
@@ -53,8 +58,8 @@ rclone copy Colab/videotool_cloud.py      gdrive:_VIDEOTOOL_SHARED/
 
 ## Run
 
-Open `colab_runner.ipynb` (or `kaggle_runner.ipynb`), run the whisper cells if you still need a
-fresh SRT, then the **"Full cloud render"** section: edit the three rclone paths and run.
+Open `kaggle_runner.ipynb` (primary; or `colab_runner.ipynb`), run the whisper cells if you still
+need a fresh SRT, then the **"Full cloud render"** section: edit the three rclone paths and run.
 
 ```python
 rr.render_job(
@@ -95,7 +100,13 @@ checkpoint for a retry instead of losing the render.
 
 ## Provider notes
 
-- **GLM** (`glm-4-flash`, `open.bigmodel.cn`) — Colab default. Verify your GLM coding-plan ToS
-  permits raw API calls; if blocked, use Gemini (`provider='gemini'`).
-- **Gemini** (`gemini-2.0-flash`) — Kaggle default, JSON mode.
-- **Anthropic** (`claude-haiku-4-5`) — set `ANTHROPIC_API_KEY` and `provider='anthropic'`.
+Quality order for this workload (Vietnamese SFX-homograph filtering + description prose):
+**Anthropic Haiku > Gemini 2.5 Flash > GLM**. `choose_provider()` auto-picks best-first from the
+keys present, so on Kaggle just load `ANTHROPIC_API_KEY` and it selects Haiku.
+
+- **Anthropic** (`claude-haiku-4-5`) — **default on Kaggle** (its LLM credit + highest quality of
+  the three). Set `ANTHROPIC_API_KEY` in Kaggle Secrets; `provider='anthropic'`.
+- **Gemini** (`gemini-2.5-flash`) — free via Google AI Studio, no card. Good fallback / Colab
+  option (`GEMINI_API_KEY`, `provider='gemini'`). Note: the retired `gemini-2.0` is not used.
+- **GLM** (`glm-4-flash`, `open.bigmodel.cn`) — cheapest, weakest on Vietnamese nuance. Verify your
+  GLM coding-plan ToS permits raw API calls before relying on it.
