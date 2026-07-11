@@ -148,7 +148,7 @@ Outputs land in `$JOB_DIR/outputs/`:
 3. **`captions.mode: srt-only` is the init default** — set `mode: off` for light jobs (YouTube auto-CC suffices). For audio-story channel jobs, subtitles come via `enhance.subtitles` + the **user-provided SRT** copied to `outputs/captions.srt` (whisper `transcribe` is NOT in the default flow anymore — 2026-07-03). `enhance.subtitles` forces caption burn regardless of `captions.mode`.
 4. **Music loop preparation** (`src/videotool/core/services.py:227`) only fires when `inputs.music` is set. Always include the music path if there's a music file in the folder.
 5. **Render path branches at 40 scenes** (`render.max_inline_scenes`). >40 → segmented path. Light tier uses `-c:v copy` at mux; full tier re-encodes once for overlays. Don't force inline.
-6. **Render's mux step can crash `UnicodeDecodeError` COSMETICALLY when job/project metadata contains Vietnamese** (`render/executor.py:81` reads ffmpeg stdout as strict UTF-8; ffmpeg echoes `-metadata title=…` in Latin-1, and a byte like 0xe1 in "Sách" is an invalid UTF-8 continuation). The mp4 is already fully written BEFORE the crash — `package` was fixed (`947cc00`, decode with `errors=replace`) but render's mux path was not. So: if `render` returns a traceback mentioning `UnicodeDecodeError`/`executor.py:81`/`_run`, do NOT re-render. Verify the artifact instead (`ffprobe` shows full duration + `ffmpeg -v error -i out.mp4 -f null -` decodes clean) and proceed to `package`. Only treat a real failure as a real failure.
+6. **Render's mux step USED to crash `UnicodeDecodeError` COSMETICALLY when job/project metadata contained Vietnamese** (ffmpeg echoes `-metadata title=…`; a split multi-byte UTF-8 char on a stdout read boundary threw in strict-UTF-8 mode). FIXED 2026-07-06: `package` (`947cc00`), `render/executor.py`, AND `render/sfx_mix.py` all decode subprocess output with `errors="replace"`, so Vietnamese metadata no longer crashes render or sfx. Residual fallback if it ever recurs: the mp4 is already fully written BEFORE the Python crash (ffmpeg keeps writing to disk), so verify the artifact (`ffprobe` shows full duration + `ffmpeg -v error -i out.mp4 -f null -` decodes clean) and proceed; do NOT re-render. Only treat a real failure as a real failure.
 
 ## Confirmed project decisions (do NOT silently reverse)
 
@@ -222,6 +222,15 @@ Outputs land in `$JOB_DIR/outputs/`:
   matching clip stays Ken Burns. Render needs no torch — it just loop+trims the clip. Distinct from
   the local-numpy `enhance.parallax` (2026-06-15), which stays as-is; `/make-video` untouched.
   *(Added 2026-06-18.)*
+- **Full cloud render = separate parallel system (`Colab/cloud_render_runner.py`), NOT
+  `/make-video`.** Reverses "render stays local" (2026-06): the whole pipeline can run on a free
+  Colab/Kaggle T4 — `Colab/cloud_director.py` LLM-authors job.yaml, NVENC renders with resumable
+  Drive checkpoints, results publish to the source folder's `Output/`. Zero local CPU. The local
+  flow is byte-unchanged; the only shared-code touch is the additive `h264_nvenc-capped` profile.
+  Cloud job.yaml sets `render.max_inline_scenes: 1` to force the resumable segmented path (schema
+  forbids 0). Resume = rerun the cell (restores pinned job.yaml + ffprobe-verified clips, no LLM
+  call). See `docs/cloud-render-setup.md`. Pain driving this = machine occupation/heat, not speed
+  (a T4 can be slower wall-clock — CPU filters bottleneck). *(Decided 2026-07-11.)*
 
 ## Input format the user gives
 

@@ -16,6 +16,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+# `@main` is convenient but not reproducible. For the key-bearing render runner, pin to a commit
+# SHA (red-team L13): pass `repo_ref="git+https://github.com/pnd4189/video-tool@<sha>"` to setup()
+# / render_job() so a later force-push to main can't change what installs on a session with your
+# LLM + rclone secrets loaded. The whisper flow (no long-lived secrets) can keep the default.
 DEFAULT_REPO_REF = "git+https://github.com/pnd4189/video-tool@main"
 AUDIO_EXTS = (".wav", ".mp3", ".m4a")
 # Short faster-whisper model names -> HuggingFace repo ids (public, no token).
