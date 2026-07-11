@@ -201,6 +201,61 @@ def _ask_json(provider: str, system: str, user: str, required: tuple[str, ...], 
     raise DirectorError(f"LLM did not return valid JSON after retries: {last_error}")
 
 
+# A homograph the pipeline must get right: literal "kiếm" (sword → SFX) vs "kiếm" (to seek → no SFX).
+_PROBE_SYSTEM = (
+    "You add one-shot sound effects to a Vietnamese audiobook. Only PHYSICAL actions get a cue; "
+    "skip metaphors/homographs. Return JSON {\"cues\":[{\"time\":sec,\"file\":\"name\"}]} using ONLY "
+    "the given files."
+)
+_PROBE_USER = (
+    "Available SFX files: [\"sword-clash.wav\", \"thunder.wav\"]\n"
+    "Timestamped narration:\n"
+    "[12.0] Hắn rút kiếm, hai thanh kiếm chạm nhau chan chát.\n"   # literal sword clash -> cue
+    "[40.0] Suốt đời hắn chỉ kiếm tiền, chưa từng thấy vui.\n"      # 'kiếm tiền' = earn money -> NO cue
+    "[70.0] Một tiếng sấm nổ vang trời."                            # thunder -> cue
+)
+
+
+def probe_providers(providers: tuple[str, ...] = ("anthropic", "gemini", "glm")) -> list[dict]:
+    """Empirically test each provider whose key is present against a real pipeline task (Vietnamese
+    homograph SFX selection). Prints a table + a recommendation. Run this in the Kaggle/Colab notebook
+    with your Secrets loaded — it uses YOUR keys/credit and answers 'which LLM is best for this
+    pipeline' with evidence, not guesswork. Returns per-provider result dicts."""
+    import time  # noqa: PLC0415
+
+    key_for = {"glm": "GLM_API_KEY", "gemini": "GEMINI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+    results = []
+    for provider in providers:
+        if not get_secret(key_for[provider]):
+            print(f"  {provider:10} — no key, skipped")
+            continue
+        row: dict = {"provider": provider}
+        try:
+            t0 = time.monotonic()
+            obj = _ask_json(provider, _PROBE_SYSTEM, _PROBE_USER, ("cues",))
+            row["latency_s"] = round(time.monotonic() - t0, 2)
+            times = sorted(round(float(c["time"])) for c in obj.get("cues", []) if "time" in c)
+            # Quality = picked the two literal actions (12 sword, 70 thunder) and skipped 40 (earn money).
+            row["cue_times"] = times
+            row["homograph_ok"] = (12 in times and 70 in times and 40 not in times)
+            row["json_ok"] = True
+            print(f"  {provider:10} — {row['latency_s']:>5}s  cues@{times}  homograph_ok={row['homograph_ok']}")
+        except Exception as exc:  # noqa: BLE001 — probe reports failures, never raises
+            row.update(json_ok=False, error=_redact(str(exc))[:120])
+            print(f"  {provider:10} — FAILED: {row['error']}")
+        results.append(row)
+
+    passed = [r for r in results if r.get("homograph_ok")]
+    order = {"anthropic": 0, "gemini": 1, "glm": 2}
+    best = min(passed, key=lambda r: (order.get(r["provider"], 9), r["latency_s"]), default=None)
+    if best:
+        print(f"\nRecommended provider for this pipeline: {best['provider']} "
+              f"(passed the VN homograph test, {best['latency_s']}s).")
+    else:
+        print("\nNo provider passed the homograph test — check keys, or inspect cue_times above.")
+    return results
+
+
 def _strip_fences(text: str) -> str:
     text = text.strip()
     if text.startswith("```"):
