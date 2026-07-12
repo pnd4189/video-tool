@@ -53,7 +53,7 @@ Reverses "render stays local" (2026-06) — user-driven, pain = heat/machine occ
 | 1 | [NVENC encoder profile](./phase-01-nvenc-encoder-profile.md) | Completed |
 | 2 | [Cloud director LLM orchestrator](./phase-02-cloud-director-llm-orchestrator.md) | Completed (code + local logic tests; live-LLM run pending user keys) |
 | 3 | [Cloud runner notebooks + Drive checkpoint](./phase-03-cloud-runner-notebooks-drive-checkpoint.md) | Completed (code + local logic tests; GPU run pending phase 4) |
-| 4 | [E2E validation + docs](./phase-04-e2e-validation-docs.md) | Docs done; GPU E2E + NVENC tuning pending user Colab session |
+| 4 | [E2E validation + docs](./phase-04-e2e-validation-docs.md) | ✅ First E2E PASSED on Kaggle T4 (2026-07-11): ĐẠO SĨ 51min ep, ~45min wall, 1.085GiB mp4, all QA-pass. Arch pivoted to Claude-authors-creative.yaml (acf888c). Remaining: atmosphere-FX round, resume-drill, Colab smoke |
 
 **Schema deviation (both phase 2 & 3):** plan says `render.max_inline_scenes: 0` but `job_spec.py:264` is `gt=0`. Used **`1`** — forces the segmented resumable path for any ≥2-scene episode, same intent, no `src/` change (respects constraint #2/#3). `docs/cloud-render-setup.md` + AGENTS.md reflect this.
 

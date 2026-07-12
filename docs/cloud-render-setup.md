@@ -1,32 +1,36 @@
 # Cloud render (parallel system) — setup
 
-Run the **whole** `/make-video` pipeline on a free Colab/Kaggle T4 GPU, driven from a Google
-Drive folder path: an LLM authors `job.yaml` in the notebook (music schedule, SFX cues,
-description/recap, chapter fallback), NVENC renders with resumable Drive checkpoints, and the
-finished mp4 + package land in the source folder's `Output/`. **Zero local CPU used.**
+Run the **whole** `/make-video` pipeline on a free Kaggle/Colab T4 GPU. **Claude Code CLI is the
+director**: it reads the Drive folder, authors a `creative.yaml` (music schedule, SFX cues, mood,
+atmosphere overlay, description/recap) — the same intelligent work as local `/make-video` — and
+stages it on Drive. The render box then just runs the deterministic pre-steps + `apply_creative` +
+NVENC render with resumable Drive checkpoints, and publishes the mp4 + package to the source
+folder's `Output/`. **No LLM runs on the render box. Zero local CPU used.**
 
 This is a **second, parallel system** — it does not change the local `/make-video` flow. Use it
-when the pain is machine occupation / heat, not when you need the fastest wall-clock (a T4's 2–4
-vCPU can bottleneck the CPU zoompan/scale filters; NVENC only removes encode cost). See the
-throughput report from phase-4 validation for go/no-go numbers.
+when the pain is machine occupation / heat, not raw speed: a T4's 2–4 vCPU bottlenecks the CPU
+filter graph (subtitle burn + showwaves + overlay blend); NVENC only removes the encode cost, so
+wall-time is ~realtime, not faster than a strong local CPU.
 
-**Kaggle is the primary render platform** (no separate LLM key to source — it ships an Anthropic
-credit, and its 4 vCPU beats Colab's 2 for the CPU filter graph). Colab is the backup. Both share
-the same modules and Drive folders.
+**Validated 2026-07-11** — ĐẠO SĨ 51-min episode on Kaggle T4: **~41 min wall (~0.8× realtime)**,
+`youtube-16x9.mp4` **1.085 GiB** (under the 2.5 GB cap), h264/1920×1080/aac/48k/−13.5 LUFS, 127
+scenes (120 parallax clips + 7 b-roll), yellow subs + visualizer + 8 SFX + 4 music + CTA spliced,
+all QA-pass, checkpoint auto-purged after verified publish.
 
-Distinct from `cloud-gpu-whisper-setup.md`, which offloads **only** transcription. This offloads
-the entire render.
+**Kaggle = primary** (4 vCPU > Colab's 2; T4×2 gives **no** render speedup — one ffmpeg uses one
+GPU). **Colab = fallback** on quota. Distinct from `cloud-gpu-whisper-setup.md` (transcription only).
 
 ## Pieces
 
 | File | Role |
 |------|------|
-| `Colab/cloud_director.py` | LLM orchestrator: deterministic pre-steps + 4 LLM tasks → validated, pinned `job.yaml` |
-| `Colab/cloud_render_runner.py` | Runner: rclone stage-in → director/resume → NVENC render + checkpoint → sfx → package → verified publish |
+| `creative.yaml` (Claude-authored, staged on Drive) | music_schedule + SFX cues + mood + overlay + description; the intelligent layer |
+| `Colab/cloud_director.py` | `apply_creative()` merges creative.yaml into a deterministic, pinned `job.yaml` (no LLM). `autonomous=True` = on-box-LLM fallback |
+| `Colab/cloud_render_runner.py` | Runner: rclone stage-in → apply_creative/resume → NVENC render + checkpoint → sfx → package → verified publish |
 | `Colab/videotool_cloud.py` | Shared install/setup core (also used by the whisper runners) |
-| `Colab/colab_runner.ipynb` / `kaggle_runner.ipynb` | "Full cloud render" section wires the above |
+| `Colab/videotool-render.ipynb` | Dedicated render-only kernel template (NO whisper cells — those would break "Run All") |
 
-Re-upload edited modules to the shared Drive so the notebooks pick them up:
+Re-upload edited modules to the shared Drive so the render kernel picks them up:
 
 ```bash
 rclone copy Colab/cloud_director.py       gdrive:_VIDEOTOOL_SHARED/
@@ -38,46 +42,50 @@ rclone copy Colab/videotool_cloud.py      gdrive:_VIDEOTOOL_SHARED/
 
 1. **GPU runtime.** Colab: Runtime → Change runtime type → **T4** (P100 has no NVENC and will
    abort). Kaggle: turn on the T4 accelerator.
-2. **rclone remote.** The runner uses rclone for all bulk I/O (the FUSE mount is ~60× slower).
-   Configure a `gdrive:` remote once (`rclone config`) and stage the config on the shared Drive:
+2. **rclone remote → `RCLONE_CONF` secret (base64).** The runner uses rclone for all bulk I/O (the
+   FUSE mount is ~60× slower). On Kaggle store the config as a **base64** secret — a raw multi-line
+   paste drops the `[gdrive]` header and rclone then can't find the remote:
    ```bash
-   rclone copy ~/.config/rclone/rclone.conf gdrive:_VIDEOTOOL_SHARED/
+   base64 -w0 ~/.config/rclone/rclone.conf   # paste this one line as Kaggle Secret RCLONE_CONF, Attached
    ```
-   The Colab cell copies it back into place; on Kaggle store the whole `rclone.conf` body as a
-   Secret named `RCLONE_CONF` (it is written to session disk at runtime — ephemeral, scope the
-   remote to your channel Drive subtree).
-3. **LLM access.** On Kaggle (primary) the credit is the **Benchmarks Model Proxy** — no personal
-   key. The runner cell runs `kaggle benchmarks init -y`, which writes a `.env` with an
-   OpenAI-compatible `MODEL_PROXY_URL` + short-lived `MODEL_PROXY_API_KEY`; cloud_director's
-   `kaggle` provider reads it and calls `google/gemini-3.5-flash` (override via `KAGGLE_PROXY_MODEL`).
-   On Colab (no proxy) add a `GEMINI_API_KEY` (or `ANTHROPIC_API_KEY` / `GLM_API_KEY`) to `userdata`.
-   `choose_provider()` prefers the Kaggle proxy, then direct keys. The proxy key + any Secret stay
-   in memory, are never written to Drive, and are redacted from logs.
-4. **SFX library mirror.** Stage the local packs to the shared Drive once so the director can copy
-   chosen cues into the job:
+   The setup cell decodes it (accepts base64 or raw) and asserts a `gdrive:` remote exists.
+3. **Library mirrors on the shared Drive** (one-time; the render kernel copies them locally):
    ```bash
-   rclone copy ~/.local/share/videotool/sfx gdrive:_VIDEOTOOL_SHARED/sfx
+   rclone copy ~/.local/share/videotool/sfx      gdrive:_VIDEOTOOL_SHARED/sfx
+   rclone copy ~/.local/share/videotool/overlays gdrive:_VIDEOTOOL_SHARED/overlays
    ```
+   No LLM key needed on the render box — Claude authored `creative.yaml` locally.
 
-## Run
+## Run (Claude Code CLI-driven)
 
-Open `kaggle_runner.ipynb` (primary; or `colab_runner.ipynb`), run the whisper cells if you still
-need a fresh SRT, then the **"Full cloud render"** section: edit the three rclone paths and run.
+Per episode, Claude Code CLI does the intelligent + orchestration work; the user does two Kaggle-UI
+clicks that the CLI can't automate (set the secret, pick the GPU).
 
-```python
-rr.render_job(
-    'gdrive:.../CHAP N',                            # source asset folder
-    'gdrive:.../CHAP N/Output',                     # only-Output write target
-    'gdrive:_VIDEOTOOL_SHARED/checkpoints/CHAP-N',  # transient checkpoint
-    provider=None,                                  # None = platform default
-    repo_ref='git+https://github.com/pnd4189/video-tool@main',
-)
-```
+1. **Claude authors `creative.yaml`** (reads the SRT + `*_vi_qa.txt` + `*_music_prompts.txt` via
+   rclone; picks music spans, SFX cues, optional mood/overlay, description) and stages it:
+   `rclone copyto creative.yaml gdrive:_VIDEOTOOL_SHARED/creative/<episode>.yaml`.
+2. **Claude fills + pushes `videotool-render.ipynb`** with the episode paths and a **pushed** SHA:
+   ```python
+   SOURCE     = 'gdrive,root_folder_id=<FOLDER_ID>:'          # connection string for a u/1 account folder
+   OUTPUT     = 'gdrive,root_folder_id=<FOLDER_ID>:Output'
+   CHECKPOINT = 'gdrive:_VIDEOTOOL_SHARED/checkpoints/<episode>'
+   CREATIVE   = 'gdrive:_VIDEOTOOL_SHARED/creative/<episode>.yaml'
+   REPO_REF   = 'git+https://github.com/pnd4189/video-tool@<PUSHED_SHA>'
+   rr.render_job(SOURCE, OUTPUT, CHECKPOINT, creative_remote=CREATIVE, repo_ref=REPO_REF, local_job='/tmp/job')
+   ```
+   then `kaggle kernels push -p <dir>`.
+3. **User (Kaggle UI):** add the `RCLONE_CONF` base64 secret (one-time, persists) → Accelerator =
+   **GPU T4 x2** → Save & Run All (Commit).
+4. **Claude monitors:** `kaggle kernels status` (poll) → on COMPLETE pull `quality-report.json` +
+   confirm the artifacts in `Output/`.
 
-The source folder must already contain what `/make-video` expects: `voice.*`, `Image/`,
-optional `Video/`, `Music/`, `*_vi_qa.txt` + `*_vi_qa.srt`, `*_music_prompts.txt`, an optional
-`*_DESCRIPTION_TEMPLATE.txt`, and an optional `CTA voice/` folder. Provide the SRT (no whisper
-in this flow — run the whisper cells first if you don't have one).
+The source folder must contain what `/make-video` expects: `voice.*`, `Image/`, optional `Video/`,
+`Parallax/`, `Music/`, `*_vi_qa.srt` (provided — **no whisper** in this flow), `*_music_prompts.txt`,
+optional `*_DESCRIPTION_TEMPLATE.txt`, `CTA voice/`.
+
+**Fallback with no Claude in the loop:** drop `creative_remote`, pass `autonomous=True`, and add
+`kaggle benchmarks init -y` to the setup so the on-box LLM (Model Proxy) authors it — see *Autonomous
+fallback* below. Lower quality; use only when not driving via Claude.
 
 ## Resume after a disconnect
 
@@ -101,7 +109,13 @@ checkpoint for a retry instead of losing the render.
   enforced in code; a hallucinated encoder or an SFX path escaping the job folder aborts before
   any GPU time is spent.
 
-## Provider notes
+## Autonomous fallback — on-box LLM (only when NOT driving via Claude)
+
+Default path is Claude-authored `creative.yaml` (above). The on-box LLM survives only for running
+the notebook with no Claude in the loop (`autonomous=True`). Kaggle's LLM credit is the Benchmarks
+**Model Proxy** — `kaggle benchmarks init -y` writes a `.env` with an OpenAI-compatible
+`MODEL_PROXY_URL` + short-lived `MODEL_PROXY_API_KEY` (no personal key); `cloud_director`'s `kaggle`
+provider calls `google/gemini-3.5-flash` (override `KAGGLE_PROXY_MODEL`).
 
 **Empirical probe on this Kaggle account (2026-07-11)** — Model Proxy, Vietnamese homograph SFX
 task ("kiếm" sword-clash vs "kiếm tiền" earn-money):
