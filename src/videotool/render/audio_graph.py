@@ -25,9 +25,9 @@ def _loudnorm_suffix(normalize_lufs: float | None) -> str:
 def _voice_pad_suffix(voice_pad_seconds: float) -> str:
     # Append trailing silence so the voice spans the full video when scenes extend past the
     # narration (e.g. an ending image). Keeps `-shortest` from clipping the outro.
-    if voice_pad_seconds <= 0:
+    if voice_pad_seconds < 0.001:
         return ""
-    return f",apad=pad_dur={voice_pad_seconds:g}"
+    return f",apad=pad_dur={voice_pad_seconds:.3f}"
 
 
 def build_audio_graph(

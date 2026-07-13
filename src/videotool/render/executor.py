@@ -68,6 +68,7 @@ class RenderExecutor:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                errors="replace",
                 bufsize=1,
             )
         except FileNotFoundError as exc:

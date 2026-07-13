@@ -85,7 +85,7 @@ def mix_sfx_onto(
 def _run(command: list[str]) -> None:
     try:
         result = subprocess.run(
-            command, capture_output=True, text=True, check=False, timeout=SUBPROCESS_TIMEOUT_SECONDS,
+            command, capture_output=True, text=True, errors="replace", check=False, timeout=SUBPROCESS_TIMEOUT_SECONDS,
         )
     except FileNotFoundError as exc:
         raise DependencyError("ffmpeg was not found. Install FFmpeg 6.1+ and retry.") from exc
