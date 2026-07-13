@@ -21,7 +21,7 @@ class WhisperCppTranscriber:
         if language:
             command.extend(["-l", language])
         try:
-            subprocess.run(command, check=True, capture_output=True, text=True)
+            subprocess.run(command, check=True, capture_output=True, text=True, errors="replace")
         except FileNotFoundError as exc:
             raise DependencyError(f"whisper.cpp binary not runnable: {self.binary_path}") from exc
         except subprocess.CalledProcessError as exc:

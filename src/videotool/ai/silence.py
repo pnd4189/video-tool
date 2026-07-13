@@ -26,7 +26,7 @@ def detect_silence(audio_path: Path, threshold: str = "-35dB", min_duration: flo
         "-",
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=600)
+        result = subprocess.run(command, capture_output=True, text=True, errors="replace", check=False, timeout=600)
     except FileNotFoundError as exc:
         raise DependencyError("ffmpeg was not found. Install FFmpeg 6.1+ and retry.") from exc
     except subprocess.TimeoutExpired as exc:

@@ -32,7 +32,7 @@ def probe_media(path: Path) -> MediaMetadata:
         str(path),
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        result = subprocess.run(command, capture_output=True, text=True, errors="replace", check=True)
     except FileNotFoundError as exc:
         raise DependencyError("ffprobe was not found. Install FFmpeg 6.1+ and retry.") from exc
     except subprocess.CalledProcessError as exc:
