@@ -87,6 +87,14 @@ optional `*_DESCRIPTION_TEMPLATE.txt`, `CTA voice/`.
 `kaggle benchmarks init -y` to the setup so the on-box LLM (Model Proxy) authors it — see *Autonomous
 fallback* below. Lower quality; use only when not driving via Claude.
 
+## Music bed wiring (regression 2026-07-21)
+
+The runner calls `init-job` without `--music`, so `cloud_director` must fill `inputs.music`
+itself — `services._stage_music` drops the whole bed *and* any `audio.music_schedule` when that
+key is empty, silently and with no error. `_seed_audio_story_defaults` now points it at
+`Music/` (or `music/`) and `pre_render_checks` aborts when tracks exist but the key is unset.
+Renders made before this fix have no background music.
+
 ## Resume after a disconnect
 
 **Rerun the same cell.** The runner restores the pinned `job.yaml` + checkpointed clips from

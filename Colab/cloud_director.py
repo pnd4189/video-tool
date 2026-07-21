@@ -417,6 +417,12 @@ def _seed_audio_story_defaults(job_dir: Path, data: dict) -> None:
     enhance.setdefault("subtitle_color", "yellow")
 
     inputs = data.setdefault("inputs", {})
+    # `init-job` runs without --music here, so point at the track folder explicitly — without
+    # `inputs.music` the whole music bed (and any music_schedule) is silently dropped at render.
+    if not inputs.get("music"):
+        music_dir = next((d for d in (job_dir / "Music", job_dir / "music") if d.is_dir()), None)
+        if music_dir is not None:
+            inputs["music"] = music_dir.name
     if not inputs.get("script"):
         script = vc.detect_script(job_dir)
         if script is not None:
@@ -621,11 +627,13 @@ def author_chapters_fallback(provider: str, job_dir: Path, data: dict) -> None:
 
 
 def pre_render_checks(job_dir: Path, job_yaml: Path) -> None:
-    """`videotool validate` PLUS the two checks it omits (H8): encoder must be a real profile,
-    and every SFX cue file must exist inside the job folder. Abort BEFORE any GPU time."""
+    """`videotool validate` PLUS the checks it omits (H8): encoder must be a real profile,
+    every SFX cue file must exist inside the job folder, and the music bed must be wired.
+    Abort BEFORE any GPU time."""
     _run_cli(["validate", str(job_yaml)])  # raises on schema / path errors
 
     data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
+    check_music_wiring(Path(job_dir), data)
     encoder = data.get("render", {}).get("encoder", "libx264-balanced")
     valid = _known_profiles()
     if encoder not in valid:
@@ -646,6 +654,31 @@ def pre_render_checks(job_dir: Path, job_yaml: Path) -> None:
             raise DirectorError(f"particle_overlay escapes job folder: {overlay}")
         if not path.exists():
             raise DirectorError(f"particle_overlay file missing: {overlay}")
+
+
+MUSIC_SUFFIXES = (".mp3", ".wav", ".m4a", ".flac", ".ogg")
+
+
+def check_music_wiring(job_dir: Path, data: dict) -> None:
+    """Abort when the folder ships music tracks but the job would render silent.
+
+    `services._stage_music` drops the whole bed (and any `audio.music_schedule`) unless
+    `inputs.music` points at the tracks, so a missing key is a silent quality loss, not an
+    error — it has to be caught here, before the GPU time is spent.
+    """
+    music = data.get("inputs", {}).get("music")
+    if music:
+        path = job_dir / music
+        if not path.exists():
+            raise DirectorError(f"inputs.music '{music}' does not exist in the job folder.")
+        return
+
+    if data.get("audio", {}).get("music_schedule"):
+        raise DirectorError("audio.music_schedule is set but inputs.music is not — the bed would be dropped.")
+    for name in ("Music", "music"):
+        folder = job_dir / name
+        if folder.is_dir() and any(p.suffix.lower() in MUSIC_SUFFIXES for p in folder.iterdir()):
+            raise DirectorError(f"'{name}/' holds music tracks but inputs.music is unset — the bed would be dropped.")
 
 
 def _known_profiles() -> set[str]:
