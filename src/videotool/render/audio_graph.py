@@ -52,8 +52,14 @@ def build_audio_graph(
     pad = _voice_pad_suffix(voice_pad_seconds)
     if music_input is None:
         return f"volume={voice_gain_db}dB{pad}{norm}"
-    voice_vol = f"[{voice_input}]volume={voice_gain_db}dB{pad}"
-    music_vol = f"[{music_input}]volume={music_gain_db}dB"
+    # Pin an explicit stereo layout on both feeds. FLAC intermediates (voice-cta / music
+    # schedule) carry a channel count but no layout tag; older ffmpeg (4.4.x on the cloud box)
+    # then refuses to negotiate formats for sidechaincompress/amix ("No channel layout for
+    # input 1" -> Conversion failed). ffmpeg 6.x infers it, which is why local renders never hit
+    # this. aformat labels the existing 2 channels without resampling.
+    layout = ",aformat=channel_layouts=stereo"
+    voice_vol = f"[{voice_input}]volume={voice_gain_db}dB{pad}{layout}"
+    music_vol = f"[{music_input}]volume={music_gain_db}dB{layout}"
     if duck:
         # asplit duplicates the gained voice so the same stream both mixes and keys the duck.
         return (

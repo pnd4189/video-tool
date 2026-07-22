@@ -35,6 +35,15 @@ def test_default_audio_keeps_sidechain_and_loudnorm(tmp_path: Path) -> None:
     assert "loudnorm=I=-14:TP=-1:LRA=11" in command
 
 
+def test_sidechain_feeds_pin_stereo_layout(tmp_path: Path) -> None:
+    # Old ffmpeg (4.4.x on the cloud box) rejects sidechaincompress when a FLAC feed lacks a
+    # channel layout ("No channel layout for input 1" -> Conversion failed). The graph must pin
+    # the layout on both feeds so the mux works on 4.4.x, not just on the local 6.x.
+    command = _command_for(_BASE, tmp_path)
+    assert command.count("aformat=channel_layouts=stereo") >= 2
+    assert "sidechaincompress" in command
+
+
 def test_default_music_gain_is_minus_30_db(tmp_path: Path) -> None:
     command = _command_for(_BASE, tmp_path)
     assert "volume=-30.0dB" in command
