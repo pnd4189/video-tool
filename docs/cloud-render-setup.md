@@ -56,26 +56,31 @@ rclone copy Colab/videotool_cloud.py      gdrive:_VIDEOTOOL_SHARED/
    ```
    No LLM key needed on the render box — Claude authored `creative.yaml` locally.
 
-## Run (Claude Code CLI-driven)
+## Run (Claude Code CLI-driven, config-driven kernel)
 
-Per episode, Claude Code CLI does the intelligent + orchestration work; the user does two Kaggle-UI
-clicks that the CLI can't automate (set the secret, pick the GPU).
+The kernel `videotool-render.ipynb` is **frozen and config-driven**: cell 2 reads the job paths from
+`gdrive:_VIDEOTOOL_SHARED/render_job.json` at run time, so its code never changes per episode. That
+means **no per-episode `kaggle kernels push`** — and since only a CLI push detaches the `RCLONE_CONF`
+secret, the secret stays attached across episodes. `REPO_REF` defaults to `@main`, so every run
+installs the latest videotool fixes automatically.
 
+**One-time setup (once, ever):** push the kernel (`kaggle kernels push -p <dir>`), then in the Kaggle
+UI add the `RCLONE_CONF` base64 secret (Attached) + Accelerator = **GPU T4 x2** + Save & Run All.
+
+**Per episode (no push, no secret re-toggle):**
 1. **Claude authors `creative.yaml`** (reads the SRT + `*_vi_qa.txt` + `*_music_prompts.txt` via
    rclone; picks music spans, SFX cues, optional mood/overlay, description) and stages it:
    `rclone copyto creative.yaml gdrive:_VIDEOTOOL_SHARED/creative/<episode>.yaml`.
-2. **Claude fills + pushes `videotool-render.ipynb`** with the episode paths and a **pushed** SHA:
-   ```python
-   SOURCE     = 'gdrive,root_folder_id=<FOLDER_ID>:'          # connection string for a u/1 account folder
-   OUTPUT     = 'gdrive,root_folder_id=<FOLDER_ID>:Output'
-   CHECKPOINT = 'gdrive:_VIDEOTOOL_SHARED/checkpoints/<episode>'
-   CREATIVE   = 'gdrive:_VIDEOTOOL_SHARED/creative/<episode>.yaml'
-   REPO_REF   = 'git+https://github.com/pnd4189/video-tool@<PUSHED_SHA>'
-   rr.render_job(SOURCE, OUTPUT, CHECKPOINT, creative_remote=CREATIVE, repo_ref=REPO_REF, local_job='/tmp/job')
+2. **Claude writes `render_job.json`** and stages it to `gdrive:_VIDEOTOOL_SHARED/render_job.json`:
+   ```json
+   {"source":"gdrive:1. YOUTUBE AUDIO/.../Chap N",
+    "output":"gdrive:1. YOUTUBE AUDIO/.../Chap N/outputs",
+    "checkpoint":"gdrive:_VIDEOTOOL_SHARED/checkpoints/<episode>",
+    "creative":"gdrive:_VIDEOTOOL_SHARED/creative/<episode>.yaml"}
    ```
-   then `kaggle kernels push -p <dir>`.
-3. **User (Kaggle UI):** add the `RCLONE_CONF` base64 secret (one-time, persists) → Accelerator =
-   **GPU T4 x2** → Save & Run All (Commit).
+   (optional: `"repo_ref"` — defaults to `@main`; `"allow_cpu"` — defaults to false.)
+3. **User (Kaggle UI):** open the saved kernel → **Save & Run All**. One click; the secret and GPU
+   choice persist. Resume after a disconnect = Save & Run All again (clips are not re-rendered).
 4. **Claude monitors:** `kaggle kernels status` (poll) → on COMPLETE pull `quality-report.json` +
    confirm the artifacts in `Output/`.
 
