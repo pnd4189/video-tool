@@ -253,6 +253,61 @@ def publish_verified(local_outputs: Path, output_remote: str) -> list[str]:
 # -- orchestrator ------------------------------------------------------------------------
 
 
+def _dump_render_logs(local_job: Path) -> None:
+    """On render failure, print the ffmpeg logs (mux + scene) to stdout so they reach the
+    Kaggle/Colab papermill log. The .log files otherwise die with the ephemeral box, leaving
+    only "FFmpeg failed (exit 1). See log: <gone>" — this surfaces the real ffmpeg stderr."""
+    logs_dir = Path(local_job) / ".videotool" / "tmp" / "logs"
+    if not logs_dir.exists():
+        print(f"runner: no render logs dir at {logs_dir}")
+        return
+    for log in sorted(logs_dir.glob("*.log")):
+        print(f"\n===== {log.name} (last 120 lines) =====")
+        try:
+            for line in log.read_text(encoding="utf-8", errors="replace").splitlines()[-120:]:
+                print(line)
+        except OSError as exc:
+            print(f"(could not read {log}: {exc})")
+
+
+def _ensure_prepare_artifacts(local_job: Path) -> None:
+    """Resume re-stages the source (wiping local_job) but skips cloud_director (pinned), so the
+    artifacts prepare_job/apply_creative created — the media/ dir, outputs/captions.srt, and the
+    staged sfx/<cue> files — are gone. render's path validation, the mux subtitles filter, and the
+    sfx step all need them; re-materialize from the source + the SFX pack."""
+    import yaml  # videotool dep; lazy import keeps the module stdlib-only at load
+    local_job = Path(local_job)
+    (local_job / "media").mkdir(exist_ok=True)
+    outputs = local_job / "outputs"
+    outputs.mkdir(exist_ok=True)
+    captions = outputs / "captions.srt"
+    if not captions.exists():
+        srts = sorted(local_job.glob("*_vi_qa.srt")) or sorted(local_job.glob("*.srt"))
+        if srts:
+            shutil.copy(srts[0], captions)
+            print(f"runner: re-materialized outputs/captions.srt from {srts[0].name} (resume)")
+    # Re-stage the SFX cue files apply_creative copied into sfx/ on the first run (checkpoint
+    # saves job.yaml + clips, not sfx/, so a resume would otherwise hit "cue file not found").
+    job_yaml = local_job / "job.yaml"
+    if job_yaml.exists():
+        try:
+            data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
+        except OSError:
+            data = {}
+        sfx = (data.get("enhance") or {}).get("sfx") or {}
+        pack = sfx.get("pack")
+        cues = sfx.get("cues") or []
+        if pack and cues:
+            pack_dir = Path.home() / ".local/share/videotool/sfx" / pack
+            dest = local_job / "sfx"
+            dest.mkdir(exist_ok=True)
+            for cue in cues:
+                name = Path(str(cue.get("file", ""))).name
+                if name and (pack_dir / name).exists() and not (dest / name).exists():
+                    shutil.copy(pack_dir / name, dest / name)
+            print(f"runner: re-staged sfx cue files into sfx/ from pack '{pack}' (resume)")
+
+
 def render_job(
     source_remote: str,
     output_remote: str,
@@ -302,9 +357,13 @@ def render_job(
         # Resume: KEEP the pinned encoder — re-probing could pick a different one and weld a
         # mismatched clip into the checkpointed NVENC clips (H4). Only assert it is still usable.
         _assert_encoder_supported(_current_encoder(job_yaml))
+    _ensure_prepare_artifacts(local_job)  # resume re-stages (wipes) local_job but skips cloud_director
     sync = CheckpointSync(local_job, checkpoint_remote).start()
     try:
         vc._run_cli(["render", str(job_yaml), "--preset", PRESET])
+    except subprocess.CalledProcessError:
+        _dump_render_logs(local_job)  # surface ffmpeg logs to the papermill log before re-raise
+        raise
     finally:
         sync.stop()
 
