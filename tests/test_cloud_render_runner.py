@@ -46,6 +46,26 @@ def test_ensure_prepare_artifacts_rematerializes_captions_from_qa_srt(tmp_path: 
     assert "Xin chào." in captions.read_text(encoding="utf-8")
 
 
+def test_ensure_prepare_artifacts_restages_overlay_on_resume(tmp_path: Path) -> None:
+    # apply_creative copies the overlay into the job root on the first run and pins
+    # inputs.particle_overlay = its bare filename. A resume skips cloud_director, so the file is
+    # gone and render's path validation aborts ("Path does not exist: fireflies-gen-01.mp4").
+    job = tmp_path / "job"
+    job.mkdir()
+    (job / "job.yaml").write_text(
+        "inputs: {particle_overlay: fireflies-gen-01.mp4}\n", encoding="utf-8"
+    )
+    library = tmp_path / "overlays"
+    library.mkdir()
+    (library / "fireflies-gen-01.mp4").write_bytes(b"overlay-bytes")
+
+    rr._ensure_prepare_artifacts(job, overlay_library=library)
+
+    restaged = job / "fireflies-gen-01.mp4"
+    assert restaged.is_file()
+    assert restaged.read_bytes() == b"overlay-bytes"
+
+
 def test_ensure_prepare_artifacts_keeps_existing_captions(tmp_path: Path) -> None:
     # A first run (not a resume) already wrote captions.srt — do not clobber it.
     job = _job_with_srt(tmp_path)

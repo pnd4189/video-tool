@@ -270,11 +270,15 @@ def _dump_render_logs(local_job: Path) -> None:
             print(f"(could not read {log}: {exc})")
 
 
-def _ensure_prepare_artifacts(local_job: Path) -> None:
+def _ensure_prepare_artifacts(
+    local_job: Path,
+    overlay_library: str | Path = Path.home() / ".local/share/videotool/overlays",
+) -> None:
     """Resume re-stages the source (wiping local_job) but skips cloud_director (pinned), so the
-    artifacts prepare_job/apply_creative created — the media/ dir, outputs/captions.srt, and the
-    staged sfx/<cue> files — are gone. render's path validation, the mux subtitles filter, and the
-    sfx step all need them; re-materialize from the source + the SFX pack."""
+    artifacts prepare_job/apply_creative created — the media/ dir, outputs/captions.srt, the staged
+    sfx/<cue> files, and the atmosphere overlay — are gone. render's path validation, the mux
+    subtitles/overlay filters, and the sfx step all need them; re-materialize from the source, the
+    SFX pack, and the overlay library."""
     import yaml  # videotool dep; lazy import keeps the module stdlib-only at load
     local_job = Path(local_job)
     (local_job / "media").mkdir(exist_ok=True)
@@ -306,6 +310,16 @@ def _ensure_prepare_artifacts(local_job: Path) -> None:
                 if name and (pack_dir / name).exists() and not (dest / name).exists():
                     shutil.copy(pack_dir / name, dest / name)
             print(f"runner: re-staged sfx cue files into sfx/ from pack '{pack}' (resume)")
+        # Re-stage the atmosphere overlay apply_creative copied into the job root on the first run
+        # (job.yaml keeps inputs.particle_overlay = the bare filename; without the file, render's
+        # path validation aborts with "Path does not exist: <overlay>" — the Chap 14 resume crash).
+        overlay = (data.get("inputs") or {}).get("particle_overlay")
+        if overlay:
+            name = Path(str(overlay)).name
+            src = Path(overlay_library) / name
+            if src.exists() and not (local_job / name).exists():
+                shutil.copy(src, local_job / name)
+                print(f"runner: re-staged overlay {name} from library (resume)")
 
 
 def render_job(
@@ -357,7 +371,7 @@ def render_job(
         # Resume: KEEP the pinned encoder — re-probing could pick a different one and weld a
         # mismatched clip into the checkpointed NVENC clips (H4). Only assert it is still usable.
         _assert_encoder_supported(_current_encoder(job_yaml))
-    _ensure_prepare_artifacts(local_job)  # resume re-stages (wipes) local_job but skips cloud_director
+    _ensure_prepare_artifacts(local_job, overlay_library)  # resume wipes local_job but skips cloud_director
     sync = CheckpointSync(local_job, checkpoint_remote).start()
     try:
         vc._run_cli(["render", str(job_yaml), "--preset", PRESET])
