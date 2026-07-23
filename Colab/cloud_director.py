@@ -719,9 +719,17 @@ def apply_creative(
             overlay: fireflies-gen-01.mp4   # filename in the overlay library -> copied into job
             sfx: {pack: dao-si, cues: [{time, file, gain_db?}, ...]}
         project: {description: "...", recap_previous: "..."}
+        inputs: {intro_image: "Ảnh bìa Thumbnail-Intro/15.jpg", ...}  # job-relative overrides
     """
     if creative.get("audio", {}).get("music_schedule"):
         data.setdefault("audio", {})["music_schedule"] = creative["audio"]["music_schedule"]
+
+    # Job-relative input overrides, for what the filename heuristics cannot resolve — e.g. a
+    # folder holding several `thumb*` candidates leaves `intro_image` unset.
+    for key, value in creative.get("inputs", {}).items():
+        if not (job_dir / value).exists():
+            raise DirectorError(f"creative inputs.{key} '{value}' does not exist in the job folder")
+        data.setdefault("inputs", {})[key] = value
 
     proj = creative.get("project", {})
     if proj.get("description"):

@@ -49,3 +49,16 @@ def test_check_music_wiring_rejects_schedule_without_tracks(tmp_path: Path) -> N
 def test_check_music_wiring_accepts_wired_job(tmp_path: Path) -> None:
     _job_with_music(tmp_path)
     cd.check_music_wiring(tmp_path, {"inputs": {"music": "Music"}})
+
+
+def test_apply_creative_sets_input_overrides(tmp_path: Path) -> None:
+    (tmp_path / "thumbs").mkdir()
+    (tmp_path / "thumbs" / "15.jpg").write_bytes(b"x")
+    data: dict = {}
+    cd.apply_creative(tmp_path, data, {"inputs": {"intro_image": "thumbs/15.jpg"}}, tmp_path, tmp_path)
+    assert data["inputs"]["intro_image"] == "thumbs/15.jpg"
+
+
+def test_apply_creative_rejects_missing_input_override(tmp_path: Path) -> None:
+    with pytest.raises(cd.DirectorError, match="intro_image"):
+        cd.apply_creative(tmp_path, {}, {"inputs": {"intro_image": "nope.jpg"}}, tmp_path, tmp_path)
