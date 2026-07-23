@@ -27,6 +27,7 @@ def _write_job(
     max_inline: int = 40,
     music: bool = True,
     enhance: str = "",
+    extra_inputs: str = "",
 ) -> Path:
     (tmp_path / "media").mkdir(exist_ok=True)
     (tmp_path / "voice.wav").write_bytes(b"fake")
@@ -44,7 +45,7 @@ project:
 inputs:
   voice: voice.wav
   media_dir: media
-{music_line}outputs:
+{music_line}{extra_inputs}outputs:
   - preset: youtube-16x9
 render:
   max_inline_scenes: {max_inline}
@@ -348,9 +349,13 @@ def test_run_segmented_skips_existing_clips(tmp_path: Path) -> None:
     assert (tmp_path / "concat.txt").exists()
 
 
-def test_run_segmented_does_not_trust_interrupted_clip(tmp_path: Path) -> None:
+def test_run_segmented_does_not_trust_interrupted_clip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # A render killed mid-clip must leave NO final clip (only a .part), so a resumed run
     # re-encodes it instead of trusting a truncated file via size>0.
+    # One worker: "scene 0 finished, scene 1 died" is only a well-defined state in order.
+    monkeypatch.setenv("VIDEOTOOL_SCENE_WORKERS", "1")
     job_path = _write_job(tmp_path, 3)
     timeline = _timeline(job_path, 6.0)
     clips_dir = tmp_path / "clips"
@@ -370,3 +375,135 @@ def test_run_segmented_does_not_trust_interrupted_clip(tmp_path: Path) -> None:
     # Resume: scene 1's stale .part is discarded and the clip is re-rendered cleanly.
     _RecordingExecutor().run_segmented(plan, tmp_path / "logs")
     assert interrupted.exists()
+
+
+def test_scene_clips_render_concurrently(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The scene pass is the parallel half of the render; the final mux is one process and
+    # dominated wall time until the expensive filters moved here.
+    monkeypatch.setenv("VIDEOTOOL_SCENE_WORKERS", "4")
+    job_path = _write_job(tmp_path, 8)
+    timeline = _timeline(job_path, 16.0)
+    plan = build_segmented_render(
+        timeline, get_profile("libx264-fast"), timeline.outputs[0],
+        clips_dir=tmp_path / "clips", concat_list_path=tmp_path / "concat.txt",
+    )
+
+    import threading
+
+    peak = 0
+    live = 0
+    lock = threading.Lock()
+    barrier = threading.Barrier(4, timeout=5)
+
+    class _ConcurrentExecutor(RenderExecutor):
+        def _run(self, command: list[str], log_path: Path, preset: str) -> float:
+            nonlocal peak, live
+            if "-f" in command:  # the mux runs alone, after the pool drains
+                Path(command[-1]).write_bytes(b"out")
+                return 0.0
+            with lock:
+                live += 1
+                peak = max(peak, live)
+            barrier.wait()  # deadlocks unless 4 scene clips are genuinely in flight
+            with lock:
+                live -= 1
+            Path(command[-1]).write_bytes(b"clip")
+            return 0.0
+
+    _ConcurrentExecutor().run_segmented(plan, tmp_path / "logs")
+    assert peak == 4
+    assert all(scene.output_path.exists() for scene in plan.scene_commands)
+
+
+def test_scene_worker_count_is_capped_and_overridable(monkeypatch: pytest.MonkeyPatch) -> None:
+    from videotool.render import executor as executor_module
+
+    monkeypatch.setenv("VIDEOTOOL_SCENE_WORKERS", "3")
+    assert executor_module.scene_workers() == 3
+    monkeypatch.delenv("VIDEOTOOL_SCENE_WORKERS")
+    monkeypatch.setattr(executor_module.os, "cpu_count", lambda: 64)
+    assert executor_module.scene_workers() == executor_module.MAX_SCENE_WORKERS
+    monkeypatch.setattr(executor_module.os, "cpu_count", lambda: None)
+    assert executor_module.scene_workers() == 1
+
+
+def _atmosphere_job(tmp_path: Path, scene_count: int = 3) -> Path:
+    (tmp_path / "fireflies.mp4").write_bytes(b"fake")
+    return _write_job(
+        tmp_path,
+        scene_count,
+        enhance=(
+            "enhance:\n"
+            "  tier: light\n"
+            "  atmosphere: true\n"
+            "  particles: false\n"
+            "  subtitles: true\n"
+            "  visualizer: false\n"
+        ),
+        extra_inputs="  particle_overlay: fireflies.mp4\n",
+    )
+
+
+def test_atmosphere_is_baked_into_scene_clips_not_the_mux(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The screen blend is the most expensive filter in the pipeline. Applied once over the
+    # concatenated video it pins wall time to a single core; per scene it parallelises.
+    from videotool.render import segmented as segmented_module
+
+    monkeypatch.setattr(segmented_module, "probe_media", lambda path: SimpleNamespace(duration=18.0))
+    job_path = _atmosphere_job(tmp_path)
+    timeline = _timeline(job_path, 6.0)
+    plan = build_segmented_render(
+        timeline, get_profile("libx264-fast"), timeline.outputs[0],
+        clips_dir=tmp_path / "clips", concat_list_path=tmp_path / "concat.txt",
+    )
+    for scene in plan.scene_commands:
+        command = " ".join(scene.command)
+        assert "fireflies.mp4" in command
+        assert "blend=all_mode=screen:shortest=1" in command
+    mux = " ".join(plan.mux_command)
+    assert "blend=all_mode=screen" not in mux
+    assert "fireflies.mp4" not in mux
+    assert "subtitles=filename=" in mux  # captions still burn in the mux
+
+
+def test_scene_atmosphere_seeks_to_each_scene_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Without the seek every clip would restart the loop, so the effect visibly resets at each cut.
+    from videotool.render import segmented as segmented_module
+
+    monkeypatch.setattr(segmented_module, "probe_media", lambda path: SimpleNamespace(duration=5.0))
+    job_path = _atmosphere_job(tmp_path, scene_count=4)  # 2.0s scenes, 5.0s overlay -> wraps
+    timeline = _timeline(job_path, 8.0)
+    plan = build_segmented_render(
+        timeline, get_profile("libx264-fast"), timeline.outputs[0],
+        clips_dir=tmp_path / "clips", concat_list_path=tmp_path / "concat.txt",
+    )
+    seeks = [command.command[command.command.index("-ss") + 1] for command in plan.scene_commands]
+    assert seeks == ["0.000", "2.000", "4.000", "1.000"]
+
+
+def test_atmosphere_only_job_drops_the_mux_to_a_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # With nothing left for the mux to draw, it becomes a remux instead of a full re-encode.
+    from videotool.render import segmented as segmented_module
+
+    monkeypatch.setattr(segmented_module, "probe_media", lambda path: SimpleNamespace(duration=18.0))
+    (tmp_path / "fireflies.mp4").write_bytes(b"fake")
+    job_path = _write_job(
+        tmp_path, 3,
+        enhance=(
+            "enhance:\n  tier: light\n  atmosphere: true\n  particles: false\n"
+            "  subtitles: false\n  visualizer: false\n"
+        ),
+        extra_inputs="  particle_overlay: fireflies.mp4\n",
+    )
+    timeline = _timeline(job_path, 6.0)
+    plan = build_segmented_render(
+        timeline, get_profile("libx264-fast"), timeline.outputs[0],
+        clips_dir=tmp_path / "clips", concat_list_path=tmp_path / "concat.txt",
+    )
+    assert "-c:v copy" in " ".join(plan.mux_command)

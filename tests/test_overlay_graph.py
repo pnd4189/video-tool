@@ -1,7 +1,12 @@
 from pathlib import Path
 
 from videotool.core.timeline import Timeline, TimelineOutput
-from videotool.render.overlay_graph import build_video_overlay, caption_filter, particle_input_args
+from videotool.render.overlay_graph import (
+    build_scene_atmosphere,
+    build_video_overlay,
+    caption_filter,
+    particle_input_args,
+)
 from videotool.core.presets import get_preset
 
 
@@ -112,3 +117,23 @@ def test_particle_input_honors_job_override() -> None:
     args = particle_input_args(_timeline(particle_overlay_path=Path("custom/snow.mp4")), _output())
 
     assert args == ["-stream_loop", "-1", "-i", "custom/snow.mp4"]
+
+
+def test_atmosphere_can_be_excluded_from_the_graph() -> None:
+    # The segmented path bakes the blend into each scene clip, so the mux must not repeat it.
+    graph = build_video_overlay(
+        "vbase", "v",
+        _timeline(
+            enhance_particles=False, enhance_visualizer=False, enhance_atmosphere=True,
+        ),
+        _output(), particle_input_idx=3, audio_label=None, include_atmosphere=False,
+    )
+    assert "blend=all_mode=screen" not in graph
+    assert "subtitles=" in graph  # the rest of the graph is untouched
+
+
+def test_scene_atmosphere_graph_blends_one_clip() -> None:
+    graph = build_scene_atmosphere("vfade", "v", _output(), 1)
+    assert "[1:v]scale=1920:1080" in graph
+    assert "blend=all_mode=screen:shortest=1" in graph
+    assert graph.endswith("[v]")

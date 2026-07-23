@@ -14,6 +14,7 @@ def build_video_overlay(
     *,
     particle_input_idx: int | None,
     audio_label: str | None,
+    include_atmosphere: bool = True,
 ) -> str:
     filters: list[str] = []
     current = label_in
@@ -59,21 +60,8 @@ def build_video_overlay(
         next_label = "vparticle"
         filters.append(f"[{current}][{particle}]overlay=shortest=1,format=yuv420p[{next_label}]")
         current = next_label
-    elif timeline.enhance_atmosphere and particle_input_idx is not None:
-        # BYO atmospheric clip (rain/snow/bokeh) blended screen at its own brightness.
-        # Screen blend must run in RGB; blending in yuv420p screens the chroma
-        # planes too and tints the whole frame magenta.
-        atmo = "vatmo_src"
-        atmo_base = "vatmo_base"
-        filters.append(
-            f"[{particle_input_idx}:v]scale={output.preset.width}:{output.preset.height}:"
-            f"force_original_aspect_ratio=increase,"
-            f"crop={output.preset.width}:{output.preset.height},format=gbrp[{atmo}]"
-        )
-        next_label = "vatmo"
-        filters.append(f"[{current}]format=gbrp[{atmo_base}]")
-        filters.append(f"[{atmo_base}][{atmo}]blend=all_mode=screen:shortest=1,format=yuv420p[{next_label}]")
-        current = next_label
+    elif include_atmosphere and timeline.enhance_atmosphere and particle_input_idx is not None:
+        current = _append_atmosphere(filters, current, particle_input_idx, output)
 
     if timeline.enhance_visualizer and audio_label:
         wave = "vwaves"
@@ -89,6 +77,34 @@ def build_video_overlay(
 
     if current != label_out:
         filters.append(f"[{current}]format=yuv420p[{label_out}]")
+    return ";".join(filters)
+
+
+def _append_atmosphere(filters: list[str], current: str, particle_input_idx: int, output: TimelineOutput) -> str:
+    """BYO atmospheric clip (rain/snow/bokeh) blended screen at its own brightness.
+
+    Screen blend must run in RGB; blending in yuv420p screens the chroma planes too and tints
+    the whole frame magenta. This is the most expensive filter in the pipeline (full-res RGB
+    round-trip per frame), which is why the segmented path bakes it per scene instead of once
+    over the whole concatenated video — per scene it parallelises across cores.
+    """
+    atmo = "vatmo_src"
+    atmo_base = "vatmo_base"
+    filters.append(
+        f"[{particle_input_idx}:v]scale={output.preset.width}:{output.preset.height}:"
+        f"force_original_aspect_ratio=increase,"
+        f"crop={output.preset.width}:{output.preset.height},format=gbrp[{atmo}]"
+    )
+    filters.append(f"[{current}]format=gbrp[{atmo_base}]")
+    filters.append(f"[{atmo_base}][{atmo}]blend=all_mode=screen:shortest=1,format=yuv420p[vatmo]")
+    return "vatmo"
+
+
+def build_scene_atmosphere(label_in: str, label_out: str, output: TimelineOutput, overlay_input_idx: int) -> str:
+    """The atmosphere screen-blend as a standalone graph, for baking into one scene clip."""
+    filters: list[str] = []
+    current = _append_atmosphere(filters, label_in, overlay_input_idx, output)
+    filters.append(f"[{current}]null[{label_out}]")
     return ";".join(filters)
 
 
@@ -146,10 +162,13 @@ def caption_filter(timeline: Timeline, output: TimelineOutput) -> str:
     return f"subtitles=filename='{_escape_filter_value(srt_path)}':force_style='{style}'"
 
 
+def particle_overlay_path(timeline: Timeline) -> Path:
+    return timeline.particle_overlay_path or _bundled_particle_overlay()
+
+
 def particle_input_args(timeline: Timeline, output: TimelineOutput) -> list[str]:
     del output
-    path = timeline.particle_overlay_path or _bundled_particle_overlay()
-    return ["-stream_loop", "-1", "-i", str(path)]
+    return ["-stream_loop", "-1", "-i", str(particle_overlay_path(timeline))]
 
 
 def _bundled_particle_overlay() -> Path:
