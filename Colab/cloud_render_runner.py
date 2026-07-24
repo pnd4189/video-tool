@@ -65,20 +65,34 @@ def stage_in(remote_dir: str, local_dir: Path) -> Path:
 def probe_encoder(allow_cpu: bool = False) -> str:
     """Return the render encoder profile after checking the GPU actually supports NVENC and the
     ffmpeg build is new enough for `-preset p5`. Abort loudly instead of a silent CPU fallback (H5)."""
-    encoders = _run(["ffmpeg", "-hide_banner", "-encoders"], check=False).stdout
     version = _run(["ffmpeg", "-hide_banner", "-version"], check=False).stdout
     ver_ok = _ffmpeg_supports_p_presets(version)
-    if "h264_nvenc" in encoders and ver_ok:
+    nvenc_ok = ver_ok and _nvenc_can_encode()
+    if nvenc_ok:
         return "h264_nvenc-capped"
     if allow_cpu:
         print("runner: NVENC unavailable — CPU opt-in -> libx264-balanced-capped (segmented).")
         return "libx264-balanced-capped"
     raise RunnerError(
-        "No usable NVENC encoder (need h264_nvenc AND ffmpeg >= 4.4 for -preset p5). "
-        f"h264_nvenc_present={'h264_nvenc' in encoders}, ffmpeg_p_presets={ver_ok}. "
+        "No usable NVENC encoder (need h264_nvenc that opens AND ffmpeg >= 4.4 for -preset p5). "
+        f"nvenc_can_encode={nvenc_ok}, ffmpeg_p_presets={ver_ok}. "
         "Pick a T4 GPU runtime (P100 has no NVENC), reconnect, or pass allow_cpu=True to "
         "accept a slower capped x264 render."
     )
+
+
+def _nvenc_can_encode() -> bool:
+    """h264_nvenc listed in `-encoders` is NOT proof it works: an ffmpeg build can ship the
+    encoder while the box has no libcuda (e.g. the Kaggle TPU host — ffmpeg 7.1 with nvenc
+    compiled in but no CUDA driver). Actually encode one frame to null; only a clean exit means
+    NVENC is usable. Without this the string check pins h264_nvenc-capped and every scene clip
+    dies with 'Cannot load libcuda.so.1'."""
+    probe = _run(
+        ["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=30",
+         "-frames:v", "1", "-c:v", "h264_nvenc", "-f", "null", "-"],
+        check=False,
+    )
+    return probe.returncode == 0
 
 
 def _ffmpeg_supports_p_presets(version_text: str) -> bool:
