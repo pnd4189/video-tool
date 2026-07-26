@@ -747,6 +747,10 @@ def apply_creative(
     for key in ("vignette", "glow", "flicker", "color_grade"):
         if key in enh:
             denh[key] = enh[key]
+    # 2.5D depth-parallax stills. When the episode ships no pre-rendered Parallax/ folder, the
+    # render box materializes the clips from DepthAnything at render time (enhance.parallax).
+    if enh.get("parallax") is not None:
+        denh["parallax"] = enh["parallax"]
 
     overlay = enh.get("overlay")
     if overlay:

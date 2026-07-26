@@ -17,6 +17,31 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Colab"))
 import cloud_render_runner as rr  # noqa: E402
 
 
+def test_nvenc_probe_frame_clears_min_dimensions(monkeypatch) -> None:
+    # A 64x64 probe frame makes NVENC InitializeEncoder fail 'Frame Dimension less than the minimum
+    # supported value' on a working T4 — a false negative that aborts every GPU render. Guard that
+    # the probe frame stays safely above the H.264 NVENC minimum (145x49).
+    import re
+
+    seen: dict[str, tuple[int, int]] = {}
+
+    class _Res:
+        returncode = 0
+        stderr = ""
+
+    def fake_run(args, check=False):
+        joined = " ".join(args)
+        m = re.search(r"s=(\d+)x(\d+)", joined)
+        if m and "h264_nvenc" in joined:
+            seen["dims"] = (int(m.group(1)), int(m.group(2)))
+        return _Res()
+
+    monkeypatch.setattr(rr, "_run", fake_run)
+    assert rr._nvenc_can_encode() is True
+    w, h = seen["dims"]
+    assert w >= 145 and h >= 49
+
+
 def _job_with_srt(tmp_path: Path) -> Path:
     (tmp_path / "Dao_Si_Quen_0027_0028_vi_qa.srt").write_text(
         "1\n00:00:00,000 --> 00:00:02,000\nXin chào.\n", encoding="utf-8"

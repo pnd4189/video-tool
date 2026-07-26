@@ -84,14 +84,24 @@ def probe_encoder(allow_cpu: bool = False) -> str:
 def _nvenc_can_encode() -> bool:
     """h264_nvenc listed in `-encoders` is NOT proof it works: an ffmpeg build can ship the
     encoder while the box has no libcuda (e.g. the Kaggle TPU host — ffmpeg 7.1 with nvenc
-    compiled in but no CUDA driver). Actually encode one frame to null; only a clean exit means
+    compiled in but no CUDA driver). Actually encode a frame to null; only a clean exit means
     NVENC is usable. Without this the string check pins h264_nvenc-capped and every scene clip
-    dies with 'Cannot load libcuda.so.1'."""
+    dies with 'Cannot load libcuda.so.1'.
+
+    The probe frame must clear NVENC's minimum encode dimensions — a too-small frame (64x64)
+    makes InitializeEncoder fail 'Frame Dimension less than the minimum supported value' on a
+    perfectly working T4, a false negative that aborts every GPU render. 320x240 is safely above
+    the H.264 NVENC minimum (145x49)."""
     probe = _run(
-        ["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=30",
+        ["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", "color=c=black:s=320x240:r=30",
          "-frames:v", "1", "-c:v", "h264_nvenc", "-f", "null", "-"],
         check=False,
     )
+    if probe.returncode != 0:
+        # Surface the real ffmpeg reason (missing libcuda, driver mismatch, no capable device) so a
+        # cloud NVENC failure is diagnosable from the papermill log, not a bare nvenc_can_encode=False.
+        tail = "\n".join((probe.stderr or "").strip().splitlines()[-8:])
+        print(f"runner: NVENC probe failed (rc={probe.returncode}). ffmpeg stderr:\n{tail}")
     return probe.returncode == 0
 
 

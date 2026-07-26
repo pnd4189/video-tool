@@ -62,3 +62,10 @@ def test_apply_creative_sets_input_overrides(tmp_path: Path) -> None:
 def test_apply_creative_rejects_missing_input_override(tmp_path: Path) -> None:
     with pytest.raises(cd.DirectorError, match="intro_image"):
         cd.apply_creative(tmp_path, {}, {"inputs": {"intro_image": "nope.jpg"}}, tmp_path, tmp_path)
+
+
+def test_apply_creative_passes_parallax_through(tmp_path: Path) -> None:
+    # Episodes without a pre-rendered Parallax/ folder request depth-parallax via creative.yaml.
+    data: dict = {}
+    cd.apply_creative(tmp_path, data, {"enhance": {"parallax": True}}, tmp_path, tmp_path)
+    assert data["enhance"]["parallax"] is True
