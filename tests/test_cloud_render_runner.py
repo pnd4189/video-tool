@@ -9,6 +9,7 @@ validation then fails with "Path does not exist: /tmp/job/media" (the Chap 25 ve
 
 from __future__ import annotations
 
+import pytest
 import sys
 from pathlib import Path
 
@@ -40,6 +41,43 @@ def test_nvenc_probe_frame_clears_min_dimensions(monkeypatch) -> None:
     assert rr._nvenc_can_encode() is True
     w, h = seen["dims"]
     assert w >= 145 and h >= 49
+
+
+def _parallax_job(tmp_path: Path, stills: int, clips: int) -> Path:
+    scenes = "".join(f"- {{scene: {i}, image: img{i}.jpg, duration: 10}}\n" for i in range(stills))
+    (tmp_path / "job.yaml").write_text(
+        f"enhance: {{parallax: true}}\nstoryboard:\n{scenes}", encoding="utf-8"
+    )
+    if clips:
+        (tmp_path / "Parallax").mkdir()
+        for i in range(clips):
+            (tmp_path / "Parallax" / f"img{i}.mp4").write_bytes(b"x")
+    return tmp_path / "job.yaml"
+
+
+def test_parallax_guard_passes_when_every_still_is_linked(tmp_path: Path) -> None:
+    # parallax-link already swapped the stills for clips -> nothing left for on-box depth.
+    job_yaml = _parallax_job(tmp_path, stills=0, clips=120)
+    rr._check_parallax_source(tmp_path, job_yaml, None)
+
+
+def test_parallax_guard_aborts_when_prerendered_clips_are_missing(tmp_path: Path) -> None:
+    # A missing Parallax/ used to silently trigger hours of on-box depth work (Chap 18).
+    job_yaml = _parallax_job(tmp_path, stills=109, clips=0)
+    with pytest.raises(rr.RunnerError, match="Parallax/"):
+        rr._check_parallax_source(tmp_path, job_yaml, None)
+
+
+def test_parallax_guard_allows_explicit_on_box_opt_in(tmp_path: Path) -> None:
+    job_yaml = _parallax_job(tmp_path, stills=109, clips=0)
+    creative = tmp_path / "creative.yaml"
+    creative.write_text("enhance:\n  parallax_on_box: true\n", encoding="utf-8")
+    rr._check_parallax_source(tmp_path, job_yaml, creative)
+
+
+def test_parallax_guard_ignores_jobs_without_parallax(tmp_path: Path) -> None:
+    (tmp_path / "job.yaml").write_text("enhance: {}\nstoryboard: []\n", encoding="utf-8")
+    rr._check_parallax_source(tmp_path, tmp_path / "job.yaml", None)
 
 
 def _job_with_srt(tmp_path: Path) -> Path:

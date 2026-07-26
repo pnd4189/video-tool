@@ -105,6 +105,42 @@ def _nvenc_can_encode() -> bool:
     return probe.returncode == 0
 
 
+def _check_parallax_source(local_job: Path, job_yaml: Path, creative_path: Path | None) -> None:
+    """Report parallax coverage and refuse to silently fall back to on-box depth rendering.
+
+    Episodes ship pre-rendered DepthFlow clips in `Parallax/`, which `parallax-link` swaps in for
+    free. When those clips are missing, `enhance.parallax` instead makes the render box estimate
+    depth and warp every still itself — ~3h15 for 109 stills on a 4-vCPU GPU box (Chap 18), i.e.
+    ~9x the rest of the render, and the result is not checkpointed. A missing `Parallax/` is almost
+    always a staging mistake, so abort with the two ways out instead of burning the hours. Opt in
+    deliberately with `enhance.parallax_on_box: true` in creative.yaml."""
+    import yaml
+
+    data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
+    if not (data.get("enhance", {}) or {}).get("parallax"):
+        return
+    stills = sum(1 for scene in (data.get("storyboard") or []) if scene.get("image"))
+    linked = len([p for p in (local_job / "Parallax").glob("*") if p.is_file()]) \
+        if (local_job / "Parallax").is_dir() else 0
+    print(f"runner: parallax ON — {linked} pre-rendered clip(s) in Parallax/, "
+          f"{stills} still scene(s) left for on-box depth.")
+    if stills == 0:
+        return
+    creative = {}
+    if creative_path is not None and creative_path.exists():
+        creative = yaml.safe_load(creative_path.read_text(encoding="utf-8")) or {}
+    if (creative.get("enhance", {}) or {}).get("parallax_on_box"):
+        print(f"runner: on-box parallax explicitly opted in — expect roughly "
+              f"{stills * 1.8 / 60:.1f}h of depth work before the first scene clip appears.")
+        return
+    raise RunnerError(
+        f"enhance.parallax is on but {stills} still scene(s) have no clip in Parallax/ "
+        f"(found {linked}). On-box depth rendering would add hours. Either upload the "
+        "pre-rendered DepthFlow clips to the source folder's Parallax/ and rerun, or set "
+        "enhance.parallax_on_box: true in creative.yaml to accept the slow path."
+    )
+
+
 def _ffmpeg_supports_p_presets(version_text: str) -> bool:
     """`-preset p1..p7` for NVENC needs ffmpeg >= 4.4."""
     import re
@@ -387,6 +423,7 @@ def render_job(
         parallax = local_job / "Parallax"
         if parallax.exists():
             vc._run_cli(["parallax-link", str(job_yaml), "--clips-dir", str(parallax)])
+        _check_parallax_source(local_job, job_yaml, creative_path)
         # First run: probe the GPU, fix the encoder, and pin the authoring so the very next
         # disconnect can resume against that exact encoder.
         _set_encoder(job_yaml, probe_encoder(allow_cpu=allow_cpu))
