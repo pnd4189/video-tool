@@ -51,7 +51,14 @@ def setup(repo_ref: str = DEFAULT_REPO_REF, wheelhouse: str | Path | None = None
         spec = f"{repo_ref}[ai]"
     else:
         # git+https refs need the extras suffix appended to the spec, not the URL.
-        spec = f"videotool[ai] @ {repo_ref}" if repo_ref.startswith("git+") else f"{repo_ref}[ai]"
+        if repo_ref.startswith("git+"):
+            spec = f"videotool[ai] @ {repo_ref}"
+        elif repo_ref.startswith("@"):
+            # Bare ref of the default repo ("@main", "@<sha>", "@branch") -> expand to its URL,
+            # else pip sees "@main[ai]" and rejects it as "Invalid requirement".
+            spec = f"videotool[ai] @ git+https://github.com/pnd4189/video-tool{repo_ref}"
+        else:
+            spec = f"{repo_ref}[ai]"
     _pip_install(spec, wheelhouse)
     _pip_install("faster-whisper", wheelhouse)
 
