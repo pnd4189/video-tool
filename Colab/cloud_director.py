@@ -573,7 +573,10 @@ def _sfx_cue_cap(voice_end: float) -> int:
 
 def _filter_sfx_cues(raw: list, available: set[str], voice_end: float) -> list[dict]:
     """Enforce AGENTS.md density: known files only, skip head/tail CTA regions, min spacing,
-    hard cap on count. The model's placement is a suggestion; these caps are the contract."""
+    hard cap on count. The model's placement is a suggestion; these caps are the contract.
+
+    A cue's `gain_db` rides along when set, so a file reused later in the episode keeps its own
+    level instead of inheriting the first cue's."""
     picked: list[dict] = []
     cap = _sfx_cue_cap(voice_end)
     for c in sorted(raw, key=lambda c: c.get("time", 0)):
@@ -587,7 +590,10 @@ def _filter_sfx_cues(raw: list, available: set[str], voice_end: float) -> list[d
             continue
         if picked and time - picked[-1]["time"] < SFX_MIN_SPACING_S:
             continue
-        picked.append({"time": time, "file": name})
+        entry = {"time": time, "file": name}
+        if c.get("gain_db") is not None:
+            entry["gain_db"] = c["gain_db"]
+        picked.append(entry)
         if len(picked) >= cap:
             break
     return picked
@@ -781,7 +787,7 @@ def apply_creative(
         dest.mkdir(exist_ok=True)
         final = []
         for cue in _filter_sfx_cues(
-            [{"time": c["time"], "file": Path(c["file"]).name} for c in sfx["cues"]],
+            [{"time": c["time"], "file": Path(c["file"]).name, "gain_db": c.get("gain_db")} for c in sfx["cues"]],
             {p.name for p in pack_dir.glob("*")},
             max((t for t, _ in _srt_lines(job_dir)), default=1e9),
         ):
@@ -789,7 +795,7 @@ def apply_creative(
             if not src.exists():
                 raise DirectorError(f"sfx cue '{cue['file']}' not found in pack {pack_dir}")
             shutil.copy(src, dest / cue["file"])
-            gain = next((c.get("gain_db") for c in sfx["cues"] if Path(c["file"]).name == cue["file"]), None)
+            gain = cue.get("gain_db")
             final.append({"time": round(cue["time"], 2), "file": f"sfx/{cue['file']}", "gain_db": gain if gain is not None else SFX_GAIN_DB})
         if final:
             denh["sfx"] = {"enabled": True, "pack": pack, "cues": final}

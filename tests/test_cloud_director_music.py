@@ -88,3 +88,32 @@ def test_filter_sfx_cues_keeps_late_cues_on_a_long_episode() -> None:
     kept = cd._filter_sfx_cues(raw, {"a.mp3"}, 9516.0)
     assert len(kept) == 21
     assert kept[-1]["time"] > 8000.0
+
+
+def test_reused_sfx_file_keeps_its_own_gain(tmp_path: Path, monkeypatch) -> None:
+    # A file used twice in one episode used to inherit the FIRST cue's gain_db, because the lookup
+    # matched on filename alone.
+    pack = tmp_path / "pack" / "binh-thien"
+    pack.mkdir(parents=True)
+    (pack / "boom.mp3").write_bytes(b"x")
+    job = tmp_path / "job"
+    (job / "outputs").mkdir(parents=True)
+    # voice_end comes from the last cue START, so the SRT must run past the cue times.
+    (job / "outputs" / "captions.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:02,000\nmo dau\n\n2\n00:10:00,000 --> 00:10:02,000\nket\n",
+        encoding="utf-8",
+    )
+    data: dict = {}
+    creative = {
+        "enhance": {
+            "sfx": {
+                "pack": "binh-thien",
+                "cues": [
+                    {"time": 100.0, "file": "boom.mp3", "gain_db": -18},
+                    {"time": 400.0, "file": "boom.mp3", "gain_db": -10},
+                ],
+            }
+        }
+    }
+    cd.apply_creative(job, data, creative, tmp_path / "pack", tmp_path / "overlays")
+    assert [c["gain_db"] for c in data["enhance"]["sfx"]["cues"]] == [-18, -10]
