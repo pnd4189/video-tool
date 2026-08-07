@@ -139,3 +139,31 @@ def test_ensure_prepare_artifacts_keeps_existing_captions(tmp_path: Path) -> Non
     rr._ensure_prepare_artifacts(job)
 
     assert (outputs / "captions.srt").read_text(encoding="utf-8") == "KEEP-ME"
+
+
+def test_bitrate_cap_selects_the_lower_vbv_variant(tmp_path: Path) -> None:
+    # A 2.6h episode at the default 2800k ceiling overshoots the size budget; creative.yaml pins
+    # the lower-ceiling variant of whatever encoder the box probed.
+    creative = tmp_path / "creative.yaml"
+    creative.write_text("render:\n  bitrate_cap: 2500k\n", encoding="utf-8")
+    assert rr._bitrate_cap(creative) == "2500k"
+    assert rr._apply_bitrate_cap("h264_nvenc-capped", "2500k") == "h264_nvenc-capped-2500k"
+
+
+def test_bitrate_cap_absent_keeps_the_probed_profile(tmp_path: Path) -> None:
+    creative = tmp_path / "creative.yaml"
+    creative.write_text("enhance:\n  sfx:\n    pack: binh-thien\n", encoding="utf-8")
+    assert rr._bitrate_cap(creative) is None
+    assert rr._apply_bitrate_cap("h264_nvenc-capped", None) == "h264_nvenc-capped"
+
+
+def test_unknown_bitrate_cap_aborts_before_gpu_time() -> None:
+    with pytest.raises(rr.RunnerError):
+        rr._apply_bitrate_cap("h264_nvenc-capped", "9999k")
+
+
+def test_resume_accepts_a_capped_variant_of_the_probed_encoder(monkeypatch) -> None:
+    # Resume re-probes only to confirm the environment; the pinned encoder carries a `-2500k`
+    # suffix the probe never returns, so equality would abort a perfectly valid resume.
+    monkeypatch.setattr(rr, "probe_encoder", lambda allow_cpu=False: "h264_nvenc-capped")
+    rr._assert_encoder_supported("h264_nvenc-capped-2500k")

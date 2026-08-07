@@ -69,3 +69,22 @@ def test_apply_creative_passes_parallax_through(tmp_path: Path) -> None:
     data: dict = {}
     cd.apply_creative(tmp_path, data, {"enhance": {"parallax": True}}, tmp_path, tmp_path)
     assert data["enhance"]["parallax"] is True
+
+
+def test_sfx_cue_cap_keeps_the_historical_floor_for_normal_episodes() -> None:
+    # <= ~105 min episodes must behave exactly as before (flat 15).
+    assert cd._sfx_cue_cap(2700.0) == 15   # 45 min
+    assert cd._sfx_cue_cap(6300.0) == 15   # 105 min
+
+
+def test_sfx_cue_cap_scales_with_a_15_chapter_episode() -> None:
+    # 158 min (Bình Thiên Chap 31): a flat 15 would stop at ~2/3 of the runtime and leave the
+    # climax silent, because cues are kept in time order.
+    assert cd._sfx_cue_cap(9516.0) == 22
+
+
+def test_filter_sfx_cues_keeps_late_cues_on_a_long_episode() -> None:
+    raw = [{"time": 60.0 + i * 400.0, "file": "a.mp3"} for i in range(21)]
+    kept = cd._filter_sfx_cues(raw, {"a.mp3"}, 9516.0)
+    assert len(kept) == 21
+    assert kept[-1]["time"] > 8000.0

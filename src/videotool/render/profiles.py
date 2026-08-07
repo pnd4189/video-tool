@@ -32,6 +32,16 @@ PROFILES = {
         "h264_nvenc-capped", "h264_nvenc", "p5", None,
         extra_args=("-rc", "vbr", "-cq", "23", "-maxrate", "2800k", "-bufsize", "5600k"),
     ),
+    # Lower VBV ceiling for very long episodes: at 2800k a 2.6h render lands ~3.4 GB, over the
+    # publish budget. Same quality knobs, ~2.5 Mbit/s average instead.
+    "libx264-balanced-capped-2500k": RenderProfile(
+        "libx264-balanced-capped-2500k", "libx264", "medium", 20,
+        extra_args=("-maxrate", "2500k", "-bufsize", "5000k"),
+    ),
+    "h264_nvenc-capped-2500k": RenderProfile(
+        "h264_nvenc-capped-2500k", "h264_nvenc", "p5", None,
+        extra_args=("-rc", "vbr", "-cq", "23", "-maxrate", "2500k", "-bufsize", "5000k"),
+    ),
 }
 
 

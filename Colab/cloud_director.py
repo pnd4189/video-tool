@@ -62,7 +62,8 @@ PIN_MARKER = Path(".videotool") / ".cloud_director.pinned"
 KAGGLE_PROXY_DEFAULT_MODEL = "google/gemini-3.5-flash"
 
 # SFX density / placement rules (AGENTS.md audio-story defaults).
-SFX_MAX_CUES = 15
+SFX_MAX_CUES = 15         # floor; long episodes scale up via _sfx_cue_cap
+SFX_SECONDS_PER_CUE = 420.0  # one cue per ~7 min beyond the floor
 SFX_MIN_SPACING_S = 30.0  # >= 30-60s between clustered cues
 SFX_SKIP_HEAD_S = 30.0    # skip the first 30s (intro / CTA region)
 SFX_SKIP_TAIL_S = 25.0    # skip the last 25s (outro / CTA region)
@@ -560,10 +561,21 @@ def _infer_pack(job_dir: Path) -> str:
     return best
 
 
+def _sfx_cue_cap(voice_end: float) -> int:
+    """How many cues an episode of this length may keep.
+
+    A flat 15 was tuned for ~90-105 min episodes. The 15-chapter format (~2.6 h, from Bình Thiên
+    Chap 31) hits that cap two thirds of the way in, and since cues are kept in time order the
+    whole climax would end up silent. Scale with duration; never below the historical floor, so
+    every episode up to ~105 min keeps its exact previous behaviour."""
+    return max(SFX_MAX_CUES, int(voice_end // SFX_SECONDS_PER_CUE))
+
+
 def _filter_sfx_cues(raw: list, available: set[str], voice_end: float) -> list[dict]:
     """Enforce AGENTS.md density: known files only, skip head/tail CTA regions, min spacing,
     hard cap on count. The model's placement is a suggestion; these caps are the contract."""
     picked: list[dict] = []
+    cap = _sfx_cue_cap(voice_end)
     for c in sorted(raw, key=lambda c: c.get("time", 0)):
         try:
             time, name = float(c["time"]), str(c["file"])
@@ -576,7 +588,7 @@ def _filter_sfx_cues(raw: list, available: set[str], voice_end: float) -> list[d
         if picked and time - picked[-1]["time"] < SFX_MIN_SPACING_S:
             continue
         picked.append({"time": time, "file": name})
-        if len(picked) >= SFX_MAX_CUES:
+        if len(picked) >= cap:
             break
     return picked
 

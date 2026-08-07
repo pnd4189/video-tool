@@ -426,7 +426,8 @@ def render_job(
         _check_parallax_source(local_job, job_yaml, creative_path)
         # First run: probe the GPU, fix the encoder, and pin the authoring so the very next
         # disconnect can resume against that exact encoder.
-        _set_encoder(job_yaml, probe_encoder(allow_cpu=allow_cpu))
+        encoder = _apply_bitrate_cap(probe_encoder(allow_cpu=allow_cpu), _bitrate_cap(creative_path))
+        _set_encoder(job_yaml, encoder)
         _rclone(["copyto", str(job_yaml), f"{checkpoint_remote}/job.yaml"])
     else:
         # Resume: KEEP the pinned encoder — re-probing could pick a different one and weld a
@@ -461,6 +462,35 @@ def _set_encoder(job_yaml: Path, encoder: str) -> None:
     job_yaml.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
+def _bitrate_cap(creative_path: Path | None) -> str | None:
+    """Optional `render.bitrate_cap` from the creative.yaml (e.g. "2500k"). A long episode
+    (15 chapters, ~2.6 h) overshoots the size budget at the default 2800k ceiling, so Claude
+    can pin a lower-VBV variant of whatever encoder the box probes."""
+    if creative_path is None or not creative_path.exists():
+        return None
+    import yaml  # noqa: PLC0415
+
+    data = yaml.safe_load(creative_path.read_text(encoding="utf-8")) or {}
+    cap = (data.get("render") or {}).get("bitrate_cap")
+    return str(cap) if cap else None
+
+
+def _apply_bitrate_cap(encoder: str, cap: str | None) -> str:
+    """Map (probed profile, cap) onto the `<profile>-<cap>` variant. Fails here, before any GPU
+    time, when the installed videotool has no such profile."""
+    if not cap:
+        return encoder
+    variant = f"{encoder}-{cap}"
+    from videotool.render.profiles import PROFILES  # noqa: PLC0415
+
+    if variant not in PROFILES:
+        raise RunnerError(
+            f"creative render.bitrate_cap '{cap}' needs profile '{variant}', which the installed "
+            f"videotool does not have (available: {sorted(PROFILES)})."
+        )
+    return variant
+
+
 def _current_encoder(job_yaml: Path) -> str:
     import yaml
 
@@ -474,7 +504,8 @@ def _assert_encoder_supported(encoder: str) -> None:
     and weld them into the NVENC checkpoint)."""
     if not encoder.startswith("h264_nvenc"):
         return
-    if probe_encoder(allow_cpu=False) != encoder:
+    # startswith, not equality: a `-<cap>` variant is the same encoder at a lower VBV ceiling.
+    if not encoder.startswith(probe_encoder(allow_cpu=False)):
         raise RunnerError(
             f"Resume needs the pinned encoder '{encoder}', but this session can't provide it "
             "(no NVENC / old ffmpeg). Reconnect to a T4 and rerun; do NOT switch encoders mid-job."
