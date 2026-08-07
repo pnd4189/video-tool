@@ -354,6 +354,12 @@ def _ensure_prepare_artifacts(
     # saves job.yaml + clips, not sfx/, so a resume would otherwise hit "cue file not found").
     job_yaml = local_job / "job.yaml"
     if job_yaml.exists():
+        # `package` reads outputs/chapters.json for the {{CHAPTERS}} block, and prepare_job (skipped
+        # on resume) is what derives it from the SRT. Without this a resumed episode publishes a
+        # description with no chapter timestamps — silent, since chapters-from-srt skips quietly.
+        if captions.exists() and not (outputs / "chapters.json").exists():
+            vc._run_cli(["chapters-from-srt", str(job_yaml)])
+            print("runner: re-derived outputs/chapters.json from captions.srt (resume)")
         try:
             data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
         except OSError:
