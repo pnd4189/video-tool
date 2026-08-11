@@ -153,6 +153,19 @@ def test_bitrate_cap_selects_the_lower_vbv_variant(tmp_path: Path) -> None:
     assert rr._apply_bitrate_cap("h264_nvenc-capped", "2500k") == "h264_nvenc-capped-2500k"
 
 
+def test_bitrate_cap_2200k_for_3h_plus_episodes(tmp_path: Path) -> None:
+    # A ~3.8h (226 min) episode overshoots even the raised 4.5 GB budget at 2500k (~4.6 GB), so
+    # Claude pins the 2200k VBV variant. Probed encoder is the CPU profile on the TPU box.
+    from videotool.render.profiles import PROFILES
+
+    creative = tmp_path / "creative.yaml"
+    creative.write_text("render:\n  bitrate_cap: 2200k\n", encoding="utf-8")
+    assert rr._bitrate_cap(creative) == "2200k"
+    assert rr._apply_bitrate_cap("libx264-balanced-capped", "2200k") == "libx264-balanced-capped-2200k"
+    assert "libx264-balanced-capped-2200k" in PROFILES
+    assert "h264_nvenc-capped-2200k" in PROFILES
+
+
 def test_bitrate_cap_absent_keeps_the_probed_profile(tmp_path: Path) -> None:
     creative = tmp_path / "creative.yaml"
     creative.write_text("enhance:\n  sfx:\n    pack: binh-thien\n", encoding="utf-8")

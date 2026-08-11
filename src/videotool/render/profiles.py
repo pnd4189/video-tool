@@ -42,6 +42,17 @@ PROFILES = {
         "h264_nvenc-capped-2500k", "h264_nvenc", "p5", None,
         extra_args=("-rc", "vbr", "-cq", "23", "-maxrate", "2500k", "-bufsize", "5000k"),
     ),
+    # Lower still for 3.5h+ episodes (15 chương at ~226 min): at 2500k the file would reach ~4.6 GB,
+    # past the raised 4.5 GB budget. -maxrate caps the long-run video average, so the published
+    # size is guaranteed ≤ (maxrate + audio) × duration ≈ 4.2 GB.
+    "libx264-balanced-capped-2200k": RenderProfile(
+        "libx264-balanced-capped-2200k", "libx264", "medium", 20,
+        extra_args=("-maxrate", "2200k", "-bufsize", "4400k"),
+    ),
+    "h264_nvenc-capped-2200k": RenderProfile(
+        "h264_nvenc-capped-2200k", "h264_nvenc", "p5", None,
+        extra_args=("-rc", "vbr", "-cq", "23", "-maxrate", "2200k", "-bufsize", "4400k"),
+    ),
 }
 
 
