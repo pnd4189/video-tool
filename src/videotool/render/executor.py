@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from videotool.core.errors import DependencyError, RenderError
+from videotool.core.media_probe import probe_media
 from videotool.render.commands import CommandPlan
 from videotool.render.segmented import SegmentedPlan
 
@@ -17,6 +18,12 @@ DEFAULT_TIMEOUT_SECONDS = 60 * 60 * 6  # 6h ceiling per render; tune if you ever
 # (scale/zoompan, plus the atmosphere blend when it is baked per scene), so one worker per
 # core is the right shape — each ffmpeg then gets roughly one core to itself.
 MAX_SCENE_WORKERS = 8
+# Per-clip frame rounding leaves each scene a fraction of a frame short of its allocated
+# duration. Reconcile only when the accumulated shortfall exceeds this (half a second) so a
+# clean render is never re-touched, and cap the correction so a pathological probe never
+# stretches a clip absurdly.
+RECONCILE_TOLERANCE_SECONDS = 0.5
+RECONCILE_MAX_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
@@ -52,6 +59,11 @@ class RenderExecutor:
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 # list() re-raises the first failure; the pool then drains before we move on.
                 list(pool.map(lambda item: self._run_scene(item[0], item[1], plan, logs_dir), pending))
+        # Reconcile the concatenated scene block to its design duration before the mux: frame
+        # rounding shortens every clip a hair, and across hundreds of scenes that adds up to
+        # enough for `-shortest` to slice the outro CTA off the end. Re-renders the last
+        # narration clip with the deficit added back so video matches audio exactly.
+        self._reconcile_scene_block(plan, logs_dir)
         plan.concat_list_path.parent.mkdir(parents=True, exist_ok=True)
         plan.concat_list_path.write_text(plan.concat_list_text, encoding="utf-8")
         plan.output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,6 +85,33 @@ class RenderExecutor:
         command = [*scene.command[:-1], str(partial)]
         self._run(command, logs_dir / f"{plan.preset}-scene-{index:04}.log", plan.preset)
         partial.replace(scene.output_path)
+
+    def _reconcile_scene_block(self, plan: SegmentedPlan, logs_dir: Path) -> None:
+        """Re-render the nominated scene clip so the concatenated clips total the design
+        duration. The deficit comes from per-clip frame rounding; left uncorrected it makes
+        the video shorter than the composed audio and ``-shortest`` cuts the outro CTA.
+
+        This is a safety net over an otherwise-complete render, so any failure to measure the
+        clips (a corrupt clip, a transient ffprobe error) skips the correction rather than
+        aborting — the mux then surfaces the real problem, if any."""
+        spec = plan.reconcile
+        if spec is None or not plan.scene_commands:
+            return
+        complete = [cmd for cmd in plan.scene_commands if _is_complete(cmd.output_path)]
+        if len(complete) != len(plan.scene_commands):
+            return  # A missing clip means the render failed above; nothing to reconcile.
+        try:
+            measured = sum(probe_media(cmd.output_path).duration for cmd in complete)
+        except Exception:
+            return  # Unreadable clip: let the mux report it instead of failing here.
+        delta = plan.scenes_total_duration - measured
+        if abs(delta) <= RECONCILE_TOLERANCE_SECONDS:
+            return
+        delta = max(min(delta, RECONCILE_MAX_SECONDS), -RECONCILE_MAX_SECONDS)
+        new_duration = spec.scene.duration + delta
+        if new_duration < 0.2:
+            return
+        self._run_scene(spec.index, spec.clip_command(new_duration), plan, logs_dir)
 
     def _run(self, command: list[str], log_path: Path, preset: str) -> float:
         log_path.parent.mkdir(parents=True, exist_ok=True)

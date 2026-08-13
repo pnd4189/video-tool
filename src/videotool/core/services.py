@@ -179,6 +179,13 @@ def build_segmented_plans(
     timeline, profile, outputs = _compile_for_render(
         job_path, presets, subtitle_path, music_path, enhance_tier, cta, materialize_parallax
     )
+    # The duration reconcile targets the LAST NARRATION scene — not the outro CTA card — so
+    # correcting the per-clip shortfall keeps the outro aligned with its voice. CTA cards
+    # bracket the narration scenes (intro at 0, outro appended), so peel them off to find it.
+    intro_offset = 1 if cta and cta.intro_seconds > 0 else 0
+    outro_present = 1 if cta and cta.outro_seconds > 0 else 0
+    narration_count = len(timeline.scenes) - intro_offset - outro_present
+    reconcile_index = intro_offset + narration_count - 1 if narration_count >= 1 else None
     # Per-preset clips/concat list: different resolutions can't share concat inputs.
     return [
         build_segmented_render(
@@ -187,6 +194,7 @@ def build_segmented_plans(
             output,
             clips_dir=workspace_root / "clips" / output.preset.name,
             concat_list_path=workspace_root / f"concat-{output.preset.name}.txt",
+            reconcile_scene_index=reconcile_index,
         )
         for output in outputs
     ]

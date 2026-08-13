@@ -23,6 +23,34 @@ MAX_CLIP_FADE_SECONDS = 0.5
 
 
 @dataclass(frozen=True)
+class ReconcileSpec:
+    """Everything needed to re-render one scene clip with an adjusted duration, so the
+    concatenated scene block can be reconciled to its design total after render.
+
+    Each scene clip comes out of ffmpeg a fraction of a frame short of its allocated duration
+    (``floor(duration*fps)/fps``). Across hundreds of scenes that shortfall accumulates into
+    seconds — enough that ``-shortest`` then carves the outro CTA off the end of the video
+    (see the Chap 34 outro-truncation incident). The executor measures the real clip total
+    and, if it is short, re-renders this clip (the LAST NARRATION scene — not the outro card,
+    so the outro stays aligned with its voice) with the deficit added back."""
+
+    index: int
+    scene: TimelineScene
+    profile: RenderProfile
+    output: TimelineOutput
+    clips_dir: Path
+    atmosphere: tuple[Path, float] | None = None
+    atmosphere_seek: float | None = None
+
+    def clip_command(self, duration: float) -> CommandPlan:
+        scene = replace(self.scene, duration=duration)
+        return _build_scene_clip(
+            self.index, scene, self.profile, self.output, self.clips_dir,
+            self.atmosphere, self.atmosphere_seek,
+        )
+
+
+@dataclass(frozen=True)
 class SegmentedPlan:
     scene_commands: list[CommandPlan]
     concat_list_path: Path
@@ -30,6 +58,11 @@ class SegmentedPlan:
     mux_command: list[str]
     output_path: Path
     preset: str
+    # Design sum of scene durations (what the concatenated clips must total so the video
+    # matches the composed audio and ``-shortest`` cuts nothing). 0.0 when no reconciliation.
+    scenes_total_duration: float = 0.0
+    # Re-render target for the duration reconcile (the last narration scene); None disables it.
+    reconcile: ReconcileSpec | None = None
 
 
 def build_segmented_render(
@@ -39,21 +72,31 @@ def build_segmented_render(
     *,
     clips_dir: Path,
     concat_list_path: Path,
+    reconcile_scene_index: int | None = None,
 ) -> SegmentedPlan:
     """Plan a resumable render: one self-contained clip per scene, joined by the concat
     demuxer with audio muxed in a final pass.
 
     Every clip shares identical codec/scale/fps/pixel-format so ``-c:v copy`` concatenation
     is valid. The final mux reuses the shared audio graph (dB gains / duck / loudnorm).
+
+    ``reconcile_scene_index`` nominates the scene whose clip the executor may re-render to
+    absorb the per-clip duration shortfall (frame rounding accumulates across many scenes).
+    It should be the LAST NARRATION scene — the outro CTA card must keep its place so the
+    outro voice stays aligned. Defaults to the last scene when unspecified (no-outro case).
     """
     atmosphere = _scene_atmosphere(timeline)
     scene_commands = []
+    reconcile: ReconcileSpec | None = None
     elapsed = 0.0
+    target = len(timeline.scenes) - 1 if reconcile_scene_index is None else reconcile_scene_index
     for index, scene in enumerate(timeline.scenes):
         seek = elapsed % atmosphere[1] if atmosphere else None
         scene_commands.append(
             _build_scene_clip(index, scene, profile, output, clips_dir, atmosphere, seek)
         )
+        if index == target:
+            reconcile = ReconcileSpec(index, scene, profile, output, clips_dir, atmosphere, seek)
         elapsed += scene.duration
     concat_list_text = "".join(
         f"file '{plan.output_path}'\n" for plan in scene_commands
@@ -68,6 +111,8 @@ def build_segmented_render(
         mux_command=mux_command,
         output_path=output.output_path,
         preset=output.preset.name,
+        scenes_total_duration=elapsed,
+        reconcile=reconcile,
     )
 
 

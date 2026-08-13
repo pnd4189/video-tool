@@ -507,3 +507,83 @@ def test_atmosphere_only_job_drops_the_mux_to_a_copy(
         clips_dir=tmp_path / "clips", concat_list_path=tmp_path / "concat.txt",
     )
     assert "-c:v copy" in " ".join(plan.mux_command)
+
+
+def test_segmented_plan_records_duration_total_and_reconcile_target(tmp_path: Path) -> None:
+    job_path = _write_job(tmp_path, 5)
+    timeline = _timeline(job_path, 10.0)
+    plan = build_segmented_render(
+        timeline, get_profile("libx264-fast"), timeline.outputs[0],
+        clips_dir=tmp_path / "clips", concat_list_path=tmp_path / "concat.txt",
+        reconcile_scene_index=2,
+    )
+    assert plan.scenes_total_duration == pytest.approx(10.0)
+    assert plan.reconcile is not None
+    assert plan.reconcile.index == 2
+    assert plan.reconcile.scene.media_path == timeline.scenes[2].media_path
+
+
+def test_reconcile_rerenders_last_clip_when_block_runs_short(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Each 2.0s clip reports 1.6s (0.4s short of its design) -> the 4-scene block runs 1.6s
+    # short of its 8.0s design. The executor must re-render the last clip with the deficit
+    # added back so the concatenated video matches the composed audio (-shortest cuts nothing).
+    monkeypatch.setenv("VIDEOTOOL_SCENE_WORKERS", "1")
+    from videotool.render import executor as execmod
+
+    job_path = _write_job(tmp_path, 4)
+    timeline = _timeline(job_path, 8.0)
+    plan = build_segmented_render(
+        timeline, get_profile("libx264-fast"), timeline.outputs[0],
+        clips_dir=tmp_path / "clips", concat_list_path=tmp_path / "concat.txt",
+    )
+    monkeypatch.setattr(execmod, "probe_media", lambda path: SimpleNamespace(duration=1.6))
+    rec = _RecordingExecutor()
+    rec.run_segmented(plan, tmp_path / "logs")
+    ran = [" ".join(command) for command in rec.commands]
+    # Last clip (scene-0003, 2.0s design) re-rendered at 2.0 + (8.0 - 6.4) = 3.6s.
+    assert any("scene-0003.part.mp4" in command and "-t 3.600" in command for command in ran)
+
+
+def test_reconcile_skipped_when_block_matches_design(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # When the clips already total the design duration, no clip is re-rendered.
+    monkeypatch.setenv("VIDEOTOOL_SCENE_WORKERS", "1")
+    from videotool.render import executor as execmod
+
+    job_path = _write_job(tmp_path, 3)
+    timeline = _timeline(job_path, 6.0)
+    plan = build_segmented_render(
+        timeline, get_profile("libx264-fast"), timeline.outputs[0],
+        clips_dir=tmp_path / "clips", concat_list_path=tmp_path / "concat.txt",
+    )
+    monkeypatch.setattr(execmod, "probe_media", lambda path: SimpleNamespace(duration=2.0))
+    rec = _RecordingExecutor()
+    rec.run_segmented(plan, tmp_path / "logs")
+    ran = [" ".join(command) for command in rec.commands]
+    renders = [command for command in ran if ".part.mp4" in command]
+    assert len(renders) == 3  # one per scene, no reconcile re-render
+    assert any("-f concat" in command for command in ran)
+
+
+def test_segmented_plans_reconcile_targets_last_narration_with_cta(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # With intro+outro CTA, scenes = [intro, n0..n3, outro]; the reconcile target must be the
+    # LAST NARRATION scene (n3 = index 4), never the outro card, so the outro stays in sync.
+    monkeypatch.setattr(services, "probe_media", lambda path: SimpleNamespace(duration=30.0))
+    job_path = _write_job(tmp_path, 4)
+    (tmp_path / "voice.wav").write_bytes(b"fake")
+    cta = services._CtaRender(
+        voice_path=tmp_path / "voice.wav",
+        intro_seconds=4.0,
+        outro_seconds=5.0,
+        intro_image=tmp_path / "intro.png",
+        outro_image=tmp_path / "outro.png",
+    )
+    plans = services.build_segmented_plans(job_path, workspace_root=tmp_path / "ws", cta=cta)
+    plan = plans[0]
+    assert plan.reconcile is not None
+    assert plan.reconcile.index == 4  # n3, the last narration scene (outro is index 5)
