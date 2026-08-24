@@ -28,11 +28,13 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.request
 from pathlib import Path
 
 import videotool_cloud as vc
 
 PRESET = "youtube-16x9"
+EXIFTOOL_RELEASE = "https://github.com/exiftool/exiftool/archive/refs/tags/13.36.tar.gz"
 # Matches scene-0001.mp4 but NOT scene-0001.part.mp4 (the digits are followed by ".part") (C2).
 CLIP_INCLUDE = "scene-[0-9][0-9][0-9][0-9].mp4"
 CLIP_DURATION_TOLERANCE_S = 0.75  # a restored clip whose duration drifts more than this is re-rendered.
@@ -274,7 +276,6 @@ class CheckpointSync:
 
 
 PUBLISH_ARTIFACTS = (
-    f"{PRESET}.mp4",
     "description.txt",
     "captions.srt",
     "captions.youtube.srt",
@@ -291,7 +292,10 @@ def publish_verified(local_outputs: Path, output_remote: str) -> list[str]:
     rclone call and confirm size>0 for every one BEFORE the caller deletes the checkpoint (H6)."""
     local_outputs = Path(local_outputs)
     published = []
-    for name in PUBLISH_ARTIFACTS:
+    # The rendered mp4 carries the publish title, not the preset name, once the metadata step
+    # has renamed it — take whatever mp4 outputs/ actually holds.
+    videos = sorted(path.name for path in local_outputs.glob("*.mp4"))
+    for name in (*videos, *PUBLISH_ARTIFACTS):
         src = local_outputs / name
         if not src.exists():
             continue
@@ -451,11 +455,44 @@ def render_job(
 
     vc._run_cli(["sfx", str(job_yaml)])
     vc._run_cli(["package", str(job_yaml)])
+    _write_publisher_metadata(job_yaml)
 
     published = publish_verified(local_job / "outputs", output_remote)
     print(f"runner: published {published} -> {output_remote}")
     _rclone(["purge", checkpoint_remote], check=False)  # only after verified publish (H6)
     print("runner: checkpoint purged after verified publish. Done.")
+
+
+def _ensure_exiftool() -> bool:
+    """ExifTool for the publisher-metadata pass. The TPU host has no `sudo`, so apt is out:
+    install the pure-Perl release into the same user data dir the local box uses."""
+    from videotool.package.metadata import EXIFTOOL_HOME, find_exiftool  # noqa: PLC0415
+
+    if find_exiftool():
+        return True
+    if not shutil.which("perl"):
+        print("runner: WARNING perl is missing on this box, cannot tag the mp4")
+        return False
+    home = EXIFTOOL_HOME.parent
+    home.mkdir(parents=True, exist_ok=True)
+    tarball = home / "exiftool.tar.gz"
+    urllib.request.urlretrieve(EXIFTOOL_RELEASE, tarball)
+    subprocess.run(
+        ["tar", "xzf", str(tarball), "-C", str(home), "--strip-components=1"], check=True
+    )
+    tarball.unlink(missing_ok=True)
+    EXIFTOOL_HOME.chmod(0o755)
+    return EXIFTOOL_HOME.exists()
+
+
+def _write_publisher_metadata(job_yaml: Path) -> None:
+    """Best-effort. The episode is fully rendered and packaged by now, so a metadata failure must
+    never cost it — a skipped pass simply publishes an untagged mp4 under the preset name."""
+    try:
+        if _ensure_exiftool():
+            vc._run_cli(["metadata", str(job_yaml)])
+    except Exception as exc:  # noqa: BLE001 - never fail a finished render over metadata
+        print(f"runner: WARNING publisher metadata skipped: {exc!r}")
 
 
 def _set_encoder(job_yaml: Path, encoder: str) -> None:

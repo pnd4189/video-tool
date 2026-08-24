@@ -102,6 +102,14 @@ def sfx(job_path: Path) -> None:
     raise typer.Exit(commands.sfx(job_path))
 
 
+@app.command("metadata")
+def metadata_cmd(
+    job_path: Path,
+    rename: bool = typer.Option(True, "--rename/--no-rename"),
+) -> None:
+    raise typer.Exit(commands.metadata(job_path, rename=rename))
+
+
 @app.command("analyze-audio")
 def analyze_audio(job_path: Path) -> None:
     raise typer.Exit(commands.analyze_audio(job_path))

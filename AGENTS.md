@@ -91,11 +91,12 @@ sed -i \
 #    and clips are spread by story order — flexible to whatever count of each survived.
 $VT storyboard auto "$JOB" --images-dir "$JOB_DIR/Image" --videos-dir "$JOB_DIR/Video"
 
-# 4. Validate → render → package
+# 4. Validate → render → package → metadata
 $VT validate "$JOB"
 $VT render "$JOB" --preset youtube-16x9   # default: long-form only, NO Shorts
 # Tier-full overlay jobs: ensure outputs/captions.srt exists, then add --enhance full.
 $VT package "$JOB"
+$VT metadata "$JOB"   # publisher tags + renames the mp4 to the episode title (see below)
 ```
 
 ### Audio-story channel default (e.g. BÌNH THIÊN SÁCH)
@@ -112,8 +113,36 @@ supplied `*_vi_qa.srt` → `"$JOB_DIR/outputs/captions.srt"`, then `$VT chapters
 (parses "Chương N:" markers → `chapters.json`; skips silently if <3 markers). `transcribe` is only for
 when NO SRT is provided / cloud-GPU whisper. Then `render --preset youtube-16x9`
 (per-feature enhance drives overlays; NOT `--enhance full` — adds particles) → **`$VT sfx "$JOB"`**
-(mixes SFX cues onto the mp4, remux `-c:v copy`) → `package` (renders `description.txt`). Paste it
-into the YouTube description for native chapters.
+(mixes SFX cues onto the mp4, remux `-c:v copy`) → `package` (renders `description.txt`) →
+**`$VT metadata "$JOB"`**. Paste `description.txt` into the YouTube description for native chapters.
+
+**`metadata` = publisher tags + publish filename** (last step, after `package`). It renames
+`youtube-16x9.mp4` to the episode title and writes the fields Windows Explorer shows, so YouTube
+prefills the title from the filename on upload. Title/tags/genre are NOT invented: `project.title`
+is the exact line from the series title list, and Tags + Genre are read back out of the rendered
+`description.txt` (`==== TAGS` block, `• Thể loại:` line). Author `project.metadata` in job.yaml
+from memory `series-channel-ownership` — it is constant for a whole series, and for a NEW series
+you must ask the user at tập 1 which channel/URL owns it:
+
+```yaml
+project:
+  title: "<full title from the series title list — becomes the mp4 filename>"
+  metadata:
+    channel: "Chính Dịch Đường"          # Directors/Producers/Publisher/Content provider/Encoded by
+    channel_url: "https://www.youtube.com/@ChinhDichDuongVN"   # Author URL + Promotion URL
+    original_author: "Vô Tội (无罪)"      # Writers — we translate it, we did not write it
+    copyright: "Bản dịch & sản xuất audio: … Nguyên tác thuộc về …"
+    subtitle: "Chương 421-435"
+    release_date: "2026-08-24"           # today when unset
+```
+
+ĐẠO SĨ's title list separates the hook with `|`; write it as ` - ` in `project.title` so the tag
+and the filename read the same (Windows rejects `|` in filenames). *(User decision 2026-08-24.)*
+
+Needs ExifTool (`~/.local/share/videotool/exiftool/exiftool`, or on PATH) — ffmpeg cannot write the
+Windows `Xtra` box the Origin fields live in. The cloud runner installs it into the same user dir
+(the TPU box has no sudo) and treats the whole pass as best-effort: a finished render is never lost
+over metadata, it just publishes untagged under the preset name.
 
 **Music-schedule + SFX cues are authored by the LLM into job.yaml** (tool just renders them):
 - **`audio.music_schedule`** — read `*_vi_qa.txt` + `*_music_prompts.txt` (N mood blocks, **block i ↔
@@ -133,7 +162,8 @@ Render Shorts ONLY when the user asks (hint contains "shorts"/"9x16"/"--all"): a
 `{preset: shorts-9x16}` to `outputs:` in job.yaml, then `$VT render "$JOB" --all`.
 
 Outputs land in `$JOB_DIR/outputs/`:
-- `youtube-16x9.mp4` (and `shorts-9x16.mp4` only if Shorts was requested)
+- `<episode title>.mp4` — renamed from `youtube-16x9.mp4` by `metadata` (and `shorts-9x16.mp4`,
+  never renamed, only if Shorts was requested)
 - `thumbnail-1280x720.jpg`, `thumbnail-candidate-0[1-5].jpg`
 - `description.txt`, `license-report.md`, `quality-report.json`, `package-manifest.json`
 - `captions.srt` + `chapters.json` (from the provided SRT via `chapters-from-srt`). `captions.srt` is
@@ -169,6 +199,15 @@ Outputs land in `$JOB_DIR/outputs/`:
 - **Motion amplitude = 0.30, pan zoom = 1.22** (`src/videotool/render/video_filters.py` `ZOOM_AMPLITUDE` / `PAN_ZOOM`). Bumped up from 0.12 because long-duration images need visible per-second motion. Don't lower without checking with user. *(Decided 2026-05-28.)*
 - **No auto Shorts.** Default render is `youtube-16x9` only; add `shorts-9x16` solely when the
   user asks. `init-job` / `storyboard plan` seed a single long-form preset. *(Decided 2026-05-29.)*
+- **Every published mp4 carries publisher metadata and is named after the episode title**
+  (`$VT metadata`, last step). Filename = the title from the series title list, because YouTube
+  prefills the upload title from it — that is the part with a real, observable effect. The
+  in-container tags (Title/Tags/Genre/Origin credits) cost ~4s and no quality, but no public
+  YouTube documentation says they affect ranking: they are a cheap bet plus a tidy library, NOT a
+  substitute for the title/description/tags typed in Studio. A series' channel, URL, original
+  author and credit line are fixed from tập 1 — ask the user for a NEW series, never guess.
+  Applies from Bình Thiên Chap 41 / ĐẠO SĨ Chap 30 onward; already-published episodes are left
+  alone. *(Decided 2026-08-24.)*
 - **No CapCut / external editor.** Tool is self-sufficient via FFmpeg.
 - **Caption mode default for our flow = `off`** (not `srt-only`).
 - **Intro AND ending images both OVERLAY the narration (no added time)** — intro the first 10s,

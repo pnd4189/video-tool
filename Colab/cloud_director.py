@@ -736,7 +736,11 @@ def apply_creative(
             grain: false          # default false — grain eats the capped bitrate budget
             overlay: fireflies-gen-01.mp4   # filename in the overlay library -> copied into job
             sfx: {pack: dao-si, cues: [{time, file, gain_db?}, ...]}
-        project: {description: "...", recap_previous: "..."}
+        project:
+            title: "<full YouTube title>"        # also becomes the published mp4 filename
+            description: "..."
+            recap_previous: "..."
+            metadata: {channel, channel_url, original_author, copyright, subtitle, release_date}
         inputs: {intro_image: "Ảnh bìa Thumbnail-Intro/15.jpg", ...}  # job-relative overrides
     """
     if creative.get("audio", {}).get("music_schedule"):
@@ -750,10 +754,9 @@ def apply_creative(
         data.setdefault("inputs", {})[key] = value
 
     proj = creative.get("project", {})
-    if proj.get("description"):
-        data.setdefault("project", {})["description"] = proj["description"]
-    if proj.get("recap_previous"):
-        data.setdefault("project", {})["recap_previous"] = proj["recap_previous"]
+    for key in ("title", "description", "recap_previous", "metadata"):
+        if proj.get(key):
+            data.setdefault("project", {})[key] = proj[key]
 
     enh = creative.get("enhance", {})
     denh = data.setdefault("enhance", {})

@@ -29,7 +29,9 @@ $ARGUMENTS
 2. Run `init-job` (point `--music` at the music folder), then patch `job.yaml` identically to
    `/make-video`: `assets.policy: allow-missing-local`, `captions.mode: off`, intro/ending images,
    channel default `enhance: {visualizer: true, subtitles: true, progress_bar: false}`,
-   `inputs.script` / `inputs.description_template`, CTA inputs, `project.recap_previous` /
+   `inputs.script` / `inputs.description_template`, CTA inputs, `project.title` (the episode's
+   line from the series title list) + `project.metadata` (channel/URL/original author, from memory
+   `series-channel-ownership`; ask the user at tập 1 of a NEW series), `project.recap_previous` /
    `project.description`. (Do NOT set `enhance.parallax` — that is the separate local-numpy path; here
    the motion comes from the ingested clips, not from the render.)
 3. Run `storyboard auto "$JOB" --images-dir "$FOLDER/Image"` (add `--videos-dir "$FOLDER/Video"` when a
@@ -42,9 +44,9 @@ $ARGUMENTS
 5. Because subtitles are on, ensure captions: if `outputs/captions.srt` is missing, run
    `transcribe "$JOB" --model "$HOME/.cache/videotool/models/faster-whisper-base"` first (model PATH,
    not bare `base`; can take minutes on long audio; emits `chapters.json`). Run it automatically.
-6. `validate` → `render --preset youtube-16x9` → `package` (per-feature `enhance` flags drive
+6. `validate` → `render --preset youtube-16x9` → `package` → `metadata` (last step: tags the mp4 with title/tags/genre/channel credits and renames it to the episode title — needs `project.title` set, see step 2) (per-feature `enhance` flags drive
    overlays — do NOT pass `--enhance full`). Render Shorts only if the hint asks.
-7. Report: mp4 path(s), thumbnail, `description.txt`, chapter count, AND **how many scenes used a
+7. Report: mp4 path(s) (named after the episode title, not `youtube-16x9.mp4`), thumbnail, `description.txt`, chapter count, AND **how many scenes used a
    parallax clip vs fell back to Ken Burns** (from the `parallax-link` summary). Quote the `ffprobe`
    codec/resolution check. If staged from gdrive, report the `Output/` path + space reclaimed.
 

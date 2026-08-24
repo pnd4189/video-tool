@@ -16,6 +16,29 @@ class ChapterSpec(BaseModel):
     title: str = Field(min_length=1)
 
 
+class MetadataSpec(BaseModel):
+    """Publisher credits written into the finished mp4 by the `metadata` step. Constant for a
+    whole series, so every episode of a story carries the same channel, URL and credit line."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Publishing channel: Directors, Producers, Publisher, Content provider, Encoded by and
+    # Contributing artists all resolve to it.
+    channel: str = ""
+    channel_url: str = ""
+    # Author of the source novel, credited as Writer — the channel translates it, it did not
+    # write it.
+    original_author: str = ""
+    copyright: str = ""
+    subtitle: str = ""
+    # Overrides the genre otherwise read out of the rendered description.txt.
+    genre: str = ""
+    release_date: str = ""  # YYYY-MM-DD; today when unset.
+    rating: int = Field(default=5, ge=0, le=5)  # Windows star rating; 0 leaves it unrated.
+    # Publish filename without the suffix; the sanitized project title when unset.
+    filename: str = ""
+
+
 class ProjectSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -28,6 +51,7 @@ class ProjectSpec(BaseModel):
     tags: list[str] = Field(default_factory=list)
     chapters: list[ChapterSpec] = Field(default_factory=list)
     cta: str = ""
+    metadata: MetadataSpec = Field(default_factory=MetadataSpec)
 
 
 class InputSpec(BaseModel):

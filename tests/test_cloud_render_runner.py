@@ -208,3 +208,37 @@ def test_ensure_prepare_artifacts_keeps_existing_chapters(tmp_path: Path, monkey
     rr._ensure_prepare_artifacts(job)
 
     assert calls == []
+
+
+def test_publish_verified_uploads_the_renamed_mp4(monkeypatch, tmp_path: Path) -> None:
+    # The metadata step renames the render to the episode title, so the publisher can no longer
+    # look for "youtube-16x9.mp4" — it must upload whatever mp4 outputs/ holds, or a 90-minute
+    # render publishes everything except the video.
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    video = "Ma Tông Song Sát - Tập 39.mp4"
+    for name in (video, "description.txt", "captions.srt"):
+        (outputs / name).write_text("x", encoding="utf-8")
+
+    copied: list[str] = []
+
+    class _Res:
+        returncode = 0
+        stdout = ""
+
+    def fake_rclone(args, check=True):
+        if args[0] == "copyto":
+            copied.append(Path(args[1]).name)
+        res = _Res()
+        if args[0] == "lsjson":
+            import json
+
+            res.stdout = json.dumps([{"Name": n, "Size": 1} for n in copied])
+        return res
+
+    monkeypatch.setattr(rr, "_rclone", fake_rclone)
+    published = rr.publish_verified(outputs, "gdrive:src/Output")
+
+    assert video in published
+    assert published.index(video) == 0  # video first: the artifact that matters most
+    assert "description.txt" in published and "captions.srt" in published

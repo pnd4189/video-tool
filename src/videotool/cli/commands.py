@@ -6,6 +6,7 @@ from rich.table import Table
 
 from videotool.core.errors import DependencyError, LicensePolicyError, RenderError, VideoToolError
 from videotool.core.logging import console
+from videotool.package.metadata import run_metadata
 from videotool.core.services import (
     build_render_plans,
     run_analyze_audio,
@@ -224,6 +225,21 @@ def sfx(job_path: Path) -> int:
         console.print("No SFX mixed (enhance.sfx unset/disabled or no cues).")
     else:
         console.print(f"Mixed SFX onto {len(processed)} output(s): {', '.join(p.name for p in processed)}")
+    return 0
+
+
+def metadata(job_path: Path, rename: bool = True) -> int:
+    try:
+        tagged, published = run_metadata(job_path, rename=rename)
+    except DependencyError as exc:
+        console.print(f"[red]MISSING DEPENDENCY[/red] {exc}")
+        return DEPENDENCY_ERROR
+    except (ValueError, VideoToolError) as exc:
+        console.print(f"[red]ERROR[/red] {exc}")
+        return CONFIG_ERROR
+    console.print(f"Tagged {len(tagged)} output(s).")
+    if published is not None:
+        console.print(f"Published name: {published.name}")
     return 0
 
 
