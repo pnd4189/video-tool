@@ -368,6 +368,43 @@ def _copy_provided_srt(job_dir: Path) -> None:
     shutil.copy(srts[0], out / "captions.srt")
 
 
+def _renumber_srt_chapters(job_dir: Path, mapping: dict) -> int:
+    """Rewrite the chapter numbers in the staged outputs/captions.srt.
+
+    Some episodes ship an SRT whose headings restart per source file ("Chương 1", "Chương 33")
+    while the published episode numbers them absolutely (77-80). Renumbering the burn baseline
+    BEFORE the render is the only way the burned subtitles carry the published numbers — the
+    description can be corrected afterwards, the pixels cannot."""
+    srt = job_dir / "outputs" / "captions.srt"
+    if not srt.exists():
+        raise DirectorError("captions.renumber needs outputs/captions.srt (provided SRT missing)")
+    wanted = {int(k): int(v) for k, v in mapping.items()}
+    seen: set[int] = set()
+
+    def sub(match: "re.Match[str]") -> str:
+        old_num = int(match.group(2))
+        if old_num not in wanted:
+            return match.group(0)
+        seen.add(old_num)
+        return f"{match.group(1)}{wanted[old_num]}{match.group(3)}"
+
+    text, count = re.subn(r"(Chương\s+)(\d+)(\s*:)", sub, srt.read_text(encoding="utf-8"))
+    missing = sorted(set(wanted) - seen)
+    if missing:
+        raise DirectorError(f"captions.renumber: no 'Chương N:' heading found for {missing}")
+    srt.write_text(text, encoding="utf-8")
+    return count
+
+
+def _write_chapters(job_dir: Path, chapters: list) -> None:
+    """Final say over outputs/chapters.json. prepare_job derives it from the SRT headings, which
+    cannot express the extra story beats the description format lists between chapters."""
+    entries = [{"start": float(c["start"]), "title": str(c["title"]).strip()} for c in chapters]
+    out = job_dir / "outputs" / "chapters.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def _detect_intro_ending_cta(job_dir: Path, data: dict) -> None:
     """Filename/subfolder heuristics from AGENTS.md; only set what is unambiguous."""
     inputs = data.setdefault("inputs", {})
@@ -736,13 +773,28 @@ def apply_creative(
             grain: false          # default false — grain eats the capped bitrate budget
             overlay: fireflies-gen-01.mp4   # filename in the overlay library -> copied into job
             sfx: {pack: dao-si, cues: [{time, file, gain_db?}, ...]}
+        captions: {renumber: {1: 77, 33: 78}}   # fix chapter numbers in the BURNED subtitles
         project:
+            chapters: [{start: 0.0, title: "Chương 77: ..."}, ...]  # final say over chapters.json
             title: "<full YouTube title>"        # also becomes the published mp4 filename
             description: "..."
             recap_previous: "..."
             metadata: {channel, channel_url, original_author, copyright, subtitle, release_date}
         inputs: {intro_image: "Ảnh bìa Thumbnail-Intro/15.jpg", ...}  # job-relative overrides
     """
+    # Burned-subtitle chapter numbers, then the chapter list itself: both must run before the
+    # render, and the renumber must precede the re-derive so chapters.json picks up new numbers.
+    renumber = (creative.get("captions") or {}).get("renumber")
+    if renumber:
+        replaced = _renumber_srt_chapters(job_dir, renumber)
+        print(f"director: renumbered {replaced} chapter heading(s) in outputs/captions.srt")
+        _run_cli(["chapters-from-srt", str(job_dir / "job.yaml")])
+
+    chapters = (creative.get("project") or {}).get("chapters")
+    if chapters:
+        _write_chapters(job_dir, chapters)
+        print(f"director: wrote {len(chapters)} chapter marker(s) from creative.yaml")
+
     if creative.get("audio", {}).get("music_schedule"):
         data.setdefault("audio", {})["music_schedule"] = creative["audio"]["music_schedule"]
 
@@ -754,7 +806,7 @@ def apply_creative(
         data.setdefault("inputs", {})[key] = value
 
     proj = creative.get("project", {})
-    for key in ("title", "description", "recap_previous", "metadata"):
+    for key in ("title", "description", "recap_previous", "metadata"):  # `chapters` -> chapters.json
         if proj.get(key):
             data.setdefault("project", {})[key] = proj[key]
 

@@ -130,8 +130,10 @@ project:
   metadata:
     channel: "Chính Dịch Đường"          # Directors/Producers/Publisher/Content provider/Encoded by
     channel_url: "https://www.youtube.com/@ChinhDichDuongVN"   # Author URL + Promotion URL
-    original_author: "Vô Tội (无罪)"      # Writers — we translate it, we did not write it
-    copyright: "Bản dịch & sản xuất audio: … Nguyên tác thuộc về …"
+    original_author: "Vô Tội"            # Writers — we translate it, we did not write it.
+                                         # Vietnamese only: no Chinese anywhere in the
+                                         # description OR these tags (user decision 2026-08-25).
+    copyright: "Bản dịch & sản xuất audio: Chính Dịch Đường. Nguyên tác thuộc về tác giả Vô Tội."
     subtitle: "Chương 421-435"
     release_date: "2026-08-24"           # today when unset
 ```

@@ -6,6 +6,7 @@ by the director. Without it the whole music bed is dropped at render time with n
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -117,3 +118,49 @@ def test_reused_sfx_file_keeps_its_own_gain(tmp_path: Path, monkeypatch) -> None
     }
     cd.apply_creative(job, data, creative, tmp_path / "pack", tmp_path / "overlays")
     assert [c["gain_db"] for c in data["enhance"]["sfx"]["cues"]] == [-18, -10]
+
+
+def test_renumber_srt_chapters_rewrites_burn_baseline(tmp_path) -> None:
+    # The burned subtitles come from outputs/captions.srt, so an episode whose source SRT numbers
+    # chapters per-file ("Chương 1") has to be renumbered BEFORE the render — afterwards only the
+    # description can be corrected, never the pixels.
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    (outputs / "captions.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:02,000\nChương 1: Khách viếng thăm.\n\n"
+        "2\n00:00:02,000 --> 00:00:04,000\nmột câu thoại nhắc Chương 1 nhưng không phải tiêu đề\n\n"
+        "3\n00:10:00,000 --> 00:10:02,000\n\" Chương 33: Dị biến (4).\n",
+        encoding="utf-8",
+    )
+    replaced = cd._renumber_srt_chapters(tmp_path, {1: 77, 33: 78})
+    text = (outputs / "captions.srt").read_text(encoding="utf-8")
+
+    assert replaced == 2
+    assert "Chương 77: Khách viếng thăm." in text
+    assert "Chương 78: Dị biến (4)." in text
+    assert "Chương 1:" not in text and "Chương 33:" not in text
+    assert "nhắc Chương 1 nhưng" in text  # no trailing colon -> left alone
+
+
+def test_renumber_srt_chapters_fails_loudly_on_unknown_number(tmp_path) -> None:
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    (outputs / "captions.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nChương 1: A.\n", encoding="utf-8")
+    with pytest.raises(cd.DirectorError):
+        cd._renumber_srt_chapters(tmp_path, {5: 90})
+
+
+def test_write_chapters_overrides_the_srt_derived_list(tmp_path) -> None:
+    # chapters-from-srt can only emit the chapter headings; the description format also lists
+    # story beats between them, so creative.yaml gets the final say.
+    (tmp_path / "outputs").mkdir()
+    (tmp_path / "outputs" / "chapters.json").write_text('[{"start": 0.0, "title": "cũ"}]', encoding="utf-8")
+    cd._write_chapters(tmp_path, [
+        {"start": 0, "title": "Chương 77: Khách viếng thăm đêm tuyết (1)"},
+        {"start": 697.5, "title": " Ổ khóa hóa chìa khóa "},
+    ])
+    written = json.loads((tmp_path / "outputs" / "chapters.json").read_text(encoding="utf-8"))
+    assert written == [
+        {"start": 0.0, "title": "Chương 77: Khách viếng thăm đêm tuyết (1)"},
+        {"start": 697.5, "title": "Ổ khóa hóa chìa khóa"},
+    ]
