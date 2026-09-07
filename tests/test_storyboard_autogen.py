@@ -31,16 +31,18 @@ def test_discover_scene_images_is_naming_agnostic(tmp_path: Path) -> None:
 def test_even_split_sums_to_voice_duration(tmp_path: Path) -> None:
     for name in ["a1.png", "a2.png", "a3.png"]:
         (tmp_path / name).write_bytes(b"x")
-    scenes = build_even_split_storyboard(tmp_path, 10.0)
+    scenes, _ = build_even_split_storyboard(tmp_path, 10.0)
     durations = [scene["duration"] for scene in scenes]
-    assert durations == [3.333, 3.333, 3.334]
-    assert abs(sum(durations) - 10.0) < 1e-6
+    # The contract is an equal share and a total that matches the voice exactly; which scene
+    # absorbs the sub-millisecond rounding remainder is an implementation detail worth nothing.
+    assert sum(durations) == 10.0
+    assert all(abs(duration - 10.0 / 3) <= 0.001 for duration in durations)
 
 
 def test_motion_rotation_cycles_and_repeats(tmp_path: Path) -> None:
     for index in range(7):
         (tmp_path / f"s{index}.png").write_bytes(b"x")
-    scenes = build_even_split_storyboard(tmp_path, 70.0)
+    scenes, _ = build_even_split_storyboard(tmp_path, 70.0)
     motions = [scene["motion"] for scene in scenes]
     assert motions[: len(MOTION_CYCLE)] == list(MOTION_CYCLE)
     assert motions[len(MOTION_CYCLE)] == MOTION_CYCLE[0]
@@ -52,7 +54,7 @@ def test_ending_image_overlays_end_without_adding_time(tmp_path: Path) -> None:
         (tmp_path / name).write_bytes(b"x")
     ending = tmp_path / "end.png"
     ending.write_bytes(b"x")
-    scenes = build_even_split_storyboard(tmp_path, 20.0, ending_image=ending)
+    scenes, _ = build_even_split_storyboard(tmp_path, 20.0, ending_image=ending)
     # The ending holds the last OUTRO_SECONDS of the voice (no added time) so it stays flush
     # with the voice end — total equals the voice duration, not voice + OUTRO_SECONDS.
     assert len(scenes) == 3
@@ -65,7 +67,7 @@ def test_ending_skipped_when_voice_too_short(tmp_path: Path, capsys) -> None:
     (tmp_path / "a1.png").write_bytes(b"x")
     ending = tmp_path / "end.png"
     ending.write_bytes(b"x")
-    scenes = build_even_split_storyboard(tmp_path, OUTRO_SECONDS - 1.0, ending_image=ending)
+    scenes, _ = build_even_split_storyboard(tmp_path, OUTRO_SECONDS - 1.0, ending_image=ending)
     assert all(s["motion"] != "static" for s in scenes)
     assert "too short" in capsys.readouterr().out
 
@@ -75,7 +77,7 @@ def test_intro_image_overlays_start_without_adding_time(tmp_path: Path) -> None:
         (tmp_path / name).write_bytes(b"x")
     intro = tmp_path / "thumb.png"
     intro.write_bytes(b"x")
-    scenes = build_even_split_storyboard(tmp_path, 30.0, intro_image=intro)
+    scenes, _ = build_even_split_storyboard(tmp_path, 30.0, intro_image=intro)
     assert scenes[0]["motion"] == "static"
     assert scenes[0]["duration"] == INTRO_SECONDS
     # Total stays at the voice duration: intro eats into the split base.
@@ -86,7 +88,7 @@ def test_intro_skipped_when_voice_too_short(tmp_path: Path, capsys) -> None:
     (tmp_path / "a1.png").write_bytes(b"x")
     intro = tmp_path / "thumb.png"
     intro.write_bytes(b"x")
-    scenes = build_even_split_storyboard(tmp_path, INTRO_SECONDS - 1.0, intro_image=intro)
+    scenes, _ = build_even_split_storyboard(tmp_path, INTRO_SECONDS - 1.0, intro_image=intro)
     assert all(s["motion"] != "static" for s in scenes)
     assert "too short" in capsys.readouterr().out
 

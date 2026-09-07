@@ -298,6 +298,23 @@ class PackageSpec(BaseModel):
     write_quality_report: bool = True
 
 
+class TimingSpec(BaseModel):
+    """How the storyboard's image timing was decided, recorded by `storyboard auto`.
+
+    Written for the reader, not the renderer: a job that says `even` when its folder holds a
+    scene plan is a bug worth catching before an hours-long render, and this is what makes that
+    checkable without re-deriving the storyboard.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["anchor", "chapter", "even"] = "even"
+    # Scenes located in the narration / scenes the plan listed. Both 0 outside the anchor tier.
+    anchors_matched: int = Field(default=0, ge=0)
+    anchors_total: int = Field(default=0, ge=0)
+    min_hold_seconds: float = Field(default=0.0, ge=0)
+
+
 class JobSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -306,6 +323,7 @@ class JobSpec(BaseModel):
     inputs: InputSpec
     outputs: list[OutputSpec] = Field(default_factory=lambda: [OutputSpec(preset="youtube-16x9")])
     storyboard: list[StoryboardSceneSpec] = Field(default_factory=list)
+    timing: TimingSpec = Field(default_factory=TimingSpec)
     audio: AudioSpec = Field(default_factory=AudioSpec)
     captions: CaptionSpec = Field(default_factory=CaptionSpec)
     enhance: EnhanceSpec = Field(default_factory=EnhanceSpec)

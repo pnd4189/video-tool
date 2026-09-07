@@ -86,10 +86,12 @@ sed -i \
   "$JOB"
 # If "captions:" block not present after init-job, append: printf '\ncaptions:\n  mode: off\n' >> "$JOB"
 
-# 3. Auto-storyboard. Pass --videos-dir to interleave b-roll clips evenly across the
-#    timeline (clips keep their real duration; images split the remaining time). Images
-#    and clips are spread by story order — flexible to whatever count of each survived.
+# 3. Auto-storyboard. Times each image to the words it illustrates (see "Image timing" below).
+#    Finds the scene plan and the narration SRT itself — no step order to get wrong.
+#    Pass --videos-dir to interleave b-roll clips across the timeline (clips keep their real
+#    duration; images share the rest). READ ITS OUTPUT: the "Timing:" line names the tier used.
 $VT storyboard auto "$JOB" --images-dir "$JOB_DIR/Image" --videos-dir "$JOB_DIR/Video"
+#    --scene-plan <file> to point at a plan kept elsewhere; --min-hold <sec> (default 9).
 
 # 4. Validate → render → package → metadata
 $VT validate "$JOB"
@@ -98,6 +100,27 @@ $VT render "$JOB" --preset youtube-16x9   # default: long-form only, NO Shorts
 $VT package "$JOB"
 $VT metadata "$JOB"   # publisher tags + renames the mp4 to the episode title (see below)
 ```
+
+### Image timing (2026-09-07)
+Three tiers, best first, chosen automatically. All three end in one solver, so the minimum hold
+and "totals exactly the narration" hold everywhere. Dropping a tier warns and never fails.
+
+| Tier | Needs | Result |
+|---|---|---|
+| `anchor` | scene plan's `source_anchor` + narration SRT | every image sits on its own words |
+| `chapter` | scene plan's `chapter` column + SRT | error 0 at each chapter marker |
+| `even` | nothing | images share the episode equally (old behaviour) |
+
+**The scene plan** is written by `visual-prompt`: `<stem>_scene_anchors.md` beside the prompts
+(visible, travels with every copy), or the legacy `.work/scene-plan.md`. Columns are read BY
+NAME, so a trimmed or reordered table still works. Images join plan rows **by the scene number
+in the filename** (`____SCENE_214_____212.jpeg` → 214) — never by list position, so a failed
+image leaves a gap instead of shifting everything after it.
+
+Minimum hold 9s (`--min-hold`); no maximum, so an image can hold minutes where the story does
+not change scene. The SRT is located by the tool (`outputs/captions.srt`, else `*_vi_qa.srt`);
+`captions.youtube.srt` is never used — it is CTA-shifted. `job.yaml` records the tier under
+`timing:`.
 
 ### Audio-story channel default (e.g. BÌNH THIÊN SÁCH)
 Seed `enhance:{visualizer:true,subtitles:true,subtitle_color:yellow}` (progress bar removed from all
@@ -178,9 +201,10 @@ Outputs land in `$JOB_DIR/outputs/`:
 1. **`init-job` writes `assets.policy: licensed-only`** (`src/videotool/core/job_spec.py:160`). Validation fails without an asset index. ALWAYS rewrite to `allow-missing-local`.
 2. **`storyboard auto` needs `--videos-dir` to include b-roll clips.** Without it, only images are used. WITH it, clips are interleaved with images by story order (spread across the whole timeline, never bunched) and keep their real duration — pass `--videos-dir "$JOB_DIR/Video"` whenever a Video folder exists. Never drop clips.
 3. **`captions.mode: srt-only` is the init default** — set `mode: off` for light jobs (YouTube auto-CC suffices). For audio-story channel jobs, subtitles come via `enhance.subtitles` + the **user-provided SRT** copied to `outputs/captions.srt` (whisper `transcribe` is NOT in the default flow anymore — 2026-07-03). `enhance.subtitles` forces caption burn regardless of `captions.mode`.
-4. **Music loop preparation** (`src/videotool/core/services.py:227`) only fires when `inputs.music` is set. Always include the music path if there's a music file in the folder.
-5. **Render path branches at 40 scenes** (`render.max_inline_scenes`). >40 → segmented path. Light tier uses `-c:v copy` at mux; full tier re-encodes once for overlays. Don't force inline. On the segmented path scene clips render **in parallel** (one per core, cap 8; override with `VIDEOTOOL_SCENE_WORKERS`) and the atmosphere screen-blend is **baked per scene**, not at the mux — that blend used to pin ~90% of wall time to one core. *(2026-07-23.)*
-6. **Render's mux step USED to crash `UnicodeDecodeError` COSMETICALLY when job/project metadata contained Vietnamese** (ffmpeg echoes `-metadata title=…`; a split multi-byte UTF-8 char on a stdout read boundary threw in strict-UTF-8 mode). FIXED 2026-07-06 (`package` `947cc00`, `render/executor.py`, `render/sfx_mix.py`) and extended 2026-07-13 to EVERY subprocess capture in the pipeline — `render/cta_compose.py`, `render/music_loop.py`, `core/media_probe.py`, `ai/whisper_cpp_adapter.py`, `ai/silence.py` all now pass `text=True, errors="replace"` so no ffmpeg/ffprobe/whisper output can crash the run on Vietnamese (or Latin-1 ID3) bytes. Residual fallback if it ever recurs: the mp4 is already fully written BEFORE the Python crash (ffmpeg keeps writing to disk), so verify the artifact (`ffprobe` shows full duration + `ffmpeg -v error -i out.mp4 -f null -` decodes clean) and proceed; do NOT re-render. Only treat a real failure as a real failure.
+4. **Image timing degrades SILENTLY, by design.** Missing scene plan or SRT → WARNING + even split; the render still succeeds, just mistimed. **Read the `Timing:` line** `storyboard auto` prints, or `timing.source` in job.yaml. Cloud runs hard-stop when the folder HAS a plan but timing still came out `even` — that combination is a bug, not a missing input (`Colab/cloud_director.py`). *(2026-09-07.)*
+5. **Music loop preparation** (`src/videotool/core/services.py:227`) only fires when `inputs.music` is set. Always include the music path if there's a music file in the folder.
+6. **Render path branches at 40 scenes** (`render.max_inline_scenes`). >40 → segmented path. Light tier uses `-c:v copy` at mux; full tier re-encodes once for overlays. Don't force inline. On the segmented path scene clips render **in parallel** (one per core, cap 8; override with `VIDEOTOOL_SCENE_WORKERS`) and the atmosphere screen-blend is **baked per scene**, not at the mux — that blend used to pin ~90% of wall time to one core. *(2026-07-23.)*
+7. **Render's mux step USED to crash `UnicodeDecodeError` COSMETICALLY when job/project metadata contained Vietnamese** (ffmpeg echoes `-metadata title=…`; a split multi-byte UTF-8 char on a stdout read boundary threw in strict-UTF-8 mode). FIXED 2026-07-06 (`package` `947cc00`, `render/executor.py`, `render/sfx_mix.py`) and extended 2026-07-13 to EVERY subprocess capture in the pipeline — `render/cta_compose.py`, `render/music_loop.py`, `core/media_probe.py`, `ai/whisper_cpp_adapter.py`, `ai/silence.py` all now pass `text=True, errors="replace"` so no ffmpeg/ffprobe/whisper output can crash the run on Vietnamese (or Latin-1 ID3) bytes. Residual fallback if it ever recurs: the mp4 is already fully written BEFORE the Python crash (ffmpeg keeps writing to disk), so verify the artifact (`ffprobe` shows full duration + `ffmpeg -v error -i out.mp4 -f null -` decodes clean) and proceed; do NOT re-render. Only treat a real failure as a real failure.
 
 ## Confirmed project decisions (do NOT silently reverse)
 
@@ -216,6 +240,16 @@ Outputs land in `$JOB_DIR/outputs/`:
   ending the LAST 10s. Keeps the ending card flush with the voice end so a spliced outro CTA
   card stays in sync with its voice (was "ending extends +10s", which desynced the outro CTA by
   10s and got -shortest-clipped). *(Decided 2026-06-13.)*
+- **Images are timed to the narration, per image.** Measured against the QA SRT of real jobs:
+  the plain even split left ĐẠO SĨ chapter openings up to 5,9 minutes early (BÌNH THIÊN ≤105s).
+  `source_anchor` — a verbatim narration excerpt the scene plan already carried — located
+  715/716 scenes across 4 episodes, in order, no duplicates, so per-image timing was available
+  for free. Measured after: median offset from the anchor 0,00s, worst 13s. Deliberately no
+  MAXIMUM hold: an image may sit for minutes where the story does not change scene, which is
+  the truth and still moves under Ken Burns. Injecting `=== CHƯƠNG N ===` into the prompt file
+  was REJECTED on evidence — `make-image` splits on `--- SCENE ---` first, so the marker would
+  add one junk image and pollute ~14 prompts per episode. This is NOT a retention lever; the
+  win is the frame being right where a listener actually looks. *(Decided 2026-09-07.)*
 - **B-roll clips interleave with images by story order** via `storyboard auto --videos-dir`
   (spread across the whole timeline, never bunched; clips keep real duration). Never drop clips
   for stills — every chapter has b-roll. *(Decided 2026-06-13.)*

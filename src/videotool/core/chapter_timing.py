@@ -7,7 +7,7 @@ from videotool.ai.transcribe import TranscriptResult
 
 # A chapter heading cue starts with "Chương <number>" (Vietnamese). parse_script keeps a
 # blank-line-separated heading as its own cue, so the cue text begins with this marker.
-CHAPTER_RE = re.compile(r"^\s*Chương\s+\d+", re.IGNORECASE)
+CHAPTER_RE = re.compile(r"^\s*Chương\s+(\d+)", re.IGNORECASE)
 # Quotes/spaces some SRT exporters prepend to a heading cue (e.g. '" Chương 143:').
 _HEADING_LEAD = " \t\"'“”‘’"
 
@@ -45,10 +45,11 @@ def derive_chapters(aligned: TranscriptResult) -> list[tuple[float, str]]:
     return _enforce_youtube_chapter_rules(headings)
 
 
-def chapters_from_srt(srt_text: str) -> list[tuple[float, str]]:
-    """Extract chapters directly from a provided SRT (no whisper). A heading cue's text
-    begins with "Chương <number>" (after stripping any leading quote/space some exporters
-    add); its start timestamp anchors the chapter. Same YouTube constraints as derive_chapters.
+def _srt_chapter_headings(srt_text: str) -> list[tuple[float, str]]:
+    """(start, title) for every SRT cue whose text opens with a "Chương <number>" marker.
+
+    A heading cue's text begins with the marker after stripping any leading quote/space some
+    exporters add; its start timestamp anchors the chapter.
     """
     normalized = srt_text.replace("\r\n", "\n").replace("\r", "\n")
     headings: list[tuple[float, str]] = []
@@ -64,4 +65,26 @@ def chapters_from_srt(srt_text: str) -> list[tuple[float, str]]:
             continue
         start = _timestamp_to_seconds(lines[ts_idx].split(" --> ", 1)[0].strip())
         headings.append((start, title))
-    return _enforce_youtube_chapter_rules(headings)
+    return headings
+
+
+def chapters_from_srt(srt_text: str) -> list[tuple[float, str]]:
+    """Extract chapters directly from a provided SRT (no whisper), under the same YouTube
+    constraints as derive_chapters."""
+    return _enforce_youtube_chapter_rules(_srt_chapter_headings(srt_text))
+
+
+def chapter_starts_from_srt(srt_text: str) -> dict[int, float]:
+    """{chapter number: narration start} for every "Chương N" marker, unfiltered.
+
+    Storyboard alignment keys the markers by the chapter number written in the script so it
+    can match them against the chapter separators in the image-prompt file. That is why it
+    cannot reuse chapters_from_srt: a marker dropped there for sitting under MIN_GAP_SECONDS
+    from its neighbour, or the whole list dropped for falling under MIN_CHAPTERS, would break
+    the match. Repeated numbers keep their first occurrence.
+    """
+    starts: dict[int, float] = {}
+    for start, title in _srt_chapter_headings(srt_text):
+        number = int(CHAPTER_RE.match(title).group(1))
+        starts.setdefault(number, start)
+    return starts

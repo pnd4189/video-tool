@@ -14,6 +14,7 @@ from videotool.assets.library import AssetLibrary, load_asset_index, validate_as
 from videotool.assets.licenses import raise_on_blocking_issues, validate_asset_policy
 from videotool.assets.reports import write_license_report
 from videotool.core.job_spec import JobSpec, MusicCueSpec, load_job, write_job_template
+from videotool.core.logging import console
 from videotool.core.errors import ValidationError
 from videotool.core.media_probe import probe_media
 from videotool.core.storyboard import natural_sort_key
@@ -53,7 +54,23 @@ def run_validate(job_path: Path, require_existing: bool = True) -> list[str]:
     errors.extend(_validate_used_assets(job, job_path, library))
     issues = validate_asset_policy(library.records, job.assets.policy)
     errors.extend(f"{issue.asset_id}: {issue.message}" for issue in issues if issue.severity == "fail")
+    _warn_untimed_images(job)
     return errors
+
+
+def _warn_untimed_images(job: JobSpec) -> None:
+    """Say out loud when a job's images are not following the narration.
+
+    An even split is a legitimate outcome for an episode with no scene plan, so this never
+    fails validation — but it is worth one loud line before hours of rendering, because the
+    only other symptom is a finished video whose pictures quietly lag the words.
+    """
+    if job.timing.source != "even" or not job.storyboard:
+        return
+    console.print(
+        "[yellow]WARNING[/yellow] images are on an EVEN SPLIT — not aligned to the narration. "
+        "Add a scene plan beside the prompts and re-run `storyboard auto` to fix it."
+    )
 
 
 def run_probe(job_path: Path) -> dict[str, object]:

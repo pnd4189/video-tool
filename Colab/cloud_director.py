@@ -334,12 +334,18 @@ def _run_cli(args: list[str]) -> None:
 def prepare_job(job_dir: Path) -> dict:
     """Run the deterministic AGENTS.md pre-steps and return the loaded job.yaml dict.
 
-    init-job -> harden (allow-missing-local, captions off, script) -> storyboard auto with
-    Image/ + Video/ -> copy provided SRT -> chapters-from-srt -> detect intro/ending/CTA ->
+    init-job -> harden (allow-missing-local, captions off, script) -> copy provided SRT ->
+    storyboard auto with Image/ + Video/ -> chapters-from-srt -> detect intro/ending/CTA ->
     seed audio-story enhance + audio + NVENC encoder + forced-segmented cap.
+
+    The SRT is staged before the storyboard, not after: storyboard auto reads its chapter
+    times to pin each chapter's scenes to that chapter's narration span, and would silently
+    fall back to an even split if the file were not there yet.
     """
     job_dir = Path(job_dir)
     job_yaml = vc.ensure_job_yaml(job_dir)  # init-job + policy/captions/script harden
+
+    _copy_provided_srt(job_dir)
 
     images = job_dir / "Image"
     videos = job_dir / "Video"
@@ -348,14 +354,39 @@ def prepare_job(job_dir: Path) -> dict:
         args += ["--videos-dir", str(videos)]
     _run_cli(args)
 
-    _copy_provided_srt(job_dir)
     _run_cli(["chapters-from-srt", str(job_yaml)])
+    _assert_timing_is_not_silently_degraded(job_dir, job_yaml)
 
     data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
     _detect_intro_ending_cta(job_dir, data)
     _seed_audio_story_defaults(job_dir, data)
     _write_job(job_yaml, data)
     return data
+
+
+def _assert_timing_is_not_silently_degraded(job_dir: Path, job_yaml: Path) -> None:
+    """Stop before the render when the images fell back to an even split they did not need to.
+
+    An episode with no scene plan legitimately gets an even split, and that is fine — it warns
+    and carries on. But an even split in a folder that DOES hold a plan means something broke
+    between the two, and finding that out after an hours-long GPU render costs a whole slot.
+    This is deliberately asymmetric: missing data is a warning, contradicted data is a stop.
+    """
+    from videotool.core.scene_plan import find_scene_plan
+
+    data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
+    source = (data.get("timing") or {}).get("source", "even")
+    if source != "even":
+        print(f"director: image timing = {source}")
+        return
+    plan = find_scene_plan(Path(job_dir))
+    if plan is None:
+        print("director: image timing = even split (no scene plan in this folder)")
+        return
+    raise RuntimeError(
+        f"Timing fell back to an even split even though {plan.name} is present — the plan or "
+        "the narration SRT could not be read. Fix that before spending a render slot."
+    )
 
 
 def _copy_provided_srt(job_dir: Path) -> None:

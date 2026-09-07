@@ -8,6 +8,7 @@ import typer
 from videotool import __version__
 from videotool.cli import commands
 from videotool.cli.storyboard_commands import auto_storyboard, plan_storyboard
+from videotool.core.scene_timing import DEFAULT_MIN_HOLD_SECONDS
 
 app = typer.Typer(no_args_is_help=True)
 storyboard_app = typer.Typer(no_args_is_help=True)
@@ -154,5 +155,15 @@ def storyboard_auto(
     job_path: Path,
     images_dir: Path = typer.Option(..., "--images-dir"),
     videos_dir: Path | None = typer.Option(None, "--videos-dir"),
+    prompts_file: Path | None = typer.Option(None, "--prompts"),
+    scene_plan: Path | None = typer.Option(None, "--scene-plan"),
+    floor: float = typer.Option(DEFAULT_MIN_HOLD_SECONDS, "--min-hold"),
 ) -> None:
-    auto_storyboard(job_path, images_dir, videos_dir=videos_dir)
+    auto_storyboard(
+        job_path,
+        images_dir,
+        videos_dir=videos_dir,
+        prompts_file=prompts_file,
+        scene_plan_file=scene_plan,
+        floor=floor,
+    )
