@@ -13,6 +13,8 @@ import pytest
 import sys
 from pathlib import Path
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Colab"))
 
 import cloud_render_runner as rr  # noqa: E402
@@ -78,6 +80,45 @@ def test_parallax_guard_allows_explicit_on_box_opt_in(tmp_path: Path) -> None:
 def test_parallax_guard_ignores_jobs_without_parallax(tmp_path: Path) -> None:
     (tmp_path / "job.yaml").write_text("enhance: {}\nstoryboard: []\n", encoding="utf-8")
     rr._check_parallax_source(tmp_path, tmp_path / "job.yaml", None)
+
+
+def _carded_job(tmp_path: Path, story_stills: int = 0) -> Path:
+    # The intro/ending title cards are stills by design: no Parallax/ clip exists for them.
+    stills = "".join(f"- {{scene: {i + 3}, image: Image/s{i}.jpg, duration: 10}}\n" for i in range(story_stills))
+    (tmp_path / "job.yaml").write_text(
+        "enhance: {parallax: true}\n"
+        "inputs: {intro_image: Thumb/38.jpg, ending_image: End/ending.jpg}\n"
+        "storyboard:\n"
+        "- {scene: 1, image: Thumb/38.jpg, duration: 10, motion: static}\n"
+        "- {scene: 2, video: Parallax/s0.mp4, duration: 12}\n"
+        f"{stills}"
+        "- {scene: 99, image: End/ending.jpg, duration: 10, motion: static}\n",
+        encoding="utf-8",
+    )
+    return tmp_path / "job.yaml"
+
+
+def test_parallax_guard_ignores_intro_and_ending_title_cards(tmp_path: Path) -> None:
+    rr._check_parallax_source(tmp_path, _carded_job(tmp_path), None)
+
+
+def test_parallax_guard_still_aborts_on_unlinked_story_stills_beside_cards(tmp_path: Path) -> None:
+    with pytest.raises(rr.RunnerError, match="1 still scene"):
+        rr._check_parallax_source(tmp_path, _carded_job(tmp_path, story_stills=1), None)
+
+
+def test_title_cards_stay_static_once_every_story_still_is_linked(tmp_path: Path) -> None:
+    # With every story still already a Parallax/ clip, enhance.parallax would only depth-warp the
+    # title cards (lettering and all) on the box, so it is switched off.
+    job_yaml = _carded_job(tmp_path)
+    rr._keep_title_cards_static(tmp_path, job_yaml)
+    assert yaml.safe_load(job_yaml.read_text(encoding="utf-8"))["enhance"]["parallax"] is False
+
+
+def test_title_cards_keep_on_box_parallax_when_story_stills_remain(tmp_path: Path) -> None:
+    job_yaml = _carded_job(tmp_path, story_stills=3)
+    rr._keep_title_cards_static(tmp_path, job_yaml)
+    assert yaml.safe_load(job_yaml.read_text(encoding="utf-8"))["enhance"]["parallax"] is True
 
 
 def _job_with_srt(tmp_path: Path) -> Path:

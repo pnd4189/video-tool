@@ -121,7 +121,7 @@ def _check_parallax_source(local_job: Path, job_yaml: Path, creative_path: Path 
     data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
     if not (data.get("enhance", {}) or {}).get("parallax"):
         return
-    stills = sum(1 for scene in (data.get("storyboard") or []) if scene.get("image"))
+    stills = _story_stills(local_job, data)
     linked = len([p for p in (local_job / "Parallax").glob("*") if p.is_file()]) \
         if (local_job / "Parallax").is_dir() else 0
     print(f"runner: parallax ON — {linked} pre-rendered clip(s) in Parallax/, "
@@ -141,6 +141,41 @@ def _check_parallax_source(local_job: Path, job_yaml: Path, creative_path: Path 
         "pre-rendered DepthFlow clips to the source folder's Parallax/ and rerun, or set "
         "enhance.parallax_on_box: true in creative.yaml to accept the slow path."
     )
+
+
+def _title_cards(local_job: Path, data: dict) -> set[Path]:
+    """The intro/ending images. storyboard auto places them as static title-card scenes that no
+    Parallax/ clip exists for, so they are not stills waiting for depth."""
+    inputs = data.get("inputs") or {}
+    return {(local_job / str(inputs[k])).resolve() for k in ("intro_image", "ending_image") if inputs.get(k)}
+
+
+def _story_stills(local_job: Path, data: dict) -> int:
+    """Still scenes other than the title cards — the ones on-box depth parallax would work on."""
+    cards = _title_cards(local_job, data)
+    return sum(
+        1 for scene in (data.get("storyboard") or [])
+        if scene.get("image") and (local_job / str(scene["image"])).resolve() not in cards
+    )
+
+
+def _keep_title_cards_static(local_job: Path, job_yaml: Path) -> None:
+    """Switch enhance.parallax off once every story still is already a Parallax/ clip.
+
+    The only stills left then are the intro/ending title cards, and on-box depth parallax would
+    just warp them, lettering included. When story stills remain (the explicit on-box opt-in),
+    the flag stays on."""
+    import yaml
+
+    data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
+    enhance = data.get("enhance") or {}
+    if not enhance.get("parallax") or _story_stills(local_job, data):
+        return
+    enhance["parallax"] = False
+    data["enhance"] = enhance
+    job_yaml.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    print("runner: every story still is a Parallax/ clip -> enhance.parallax off, so the "
+          "intro/ending title cards stay static instead of being depth-warped on the box.")
 
 
 def _ffmpeg_supports_p_presets(version_text: str) -> bool:
@@ -434,6 +469,7 @@ def render_job(
         if parallax.exists():
             vc._run_cli(["parallax-link", str(job_yaml), "--clips-dir", str(parallax)])
         _check_parallax_source(local_job, job_yaml, creative_path)
+        _keep_title_cards_static(local_job, job_yaml)
         # First run: probe the GPU, fix the encoder, and pin the authoring so the very next
         # disconnect can resume against that exact encoder.
         encoder = _apply_bitrate_cap(probe_encoder(allow_cpu=allow_cpu), _bitrate_cap(creative_path))

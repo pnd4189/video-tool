@@ -331,21 +331,29 @@ def _run_cli(args: list[str]) -> None:
     vc._run_cli(args)  # list-form subprocess; safe with VN folder names (L12)
 
 
-def prepare_job(job_dir: Path) -> dict:
+def prepare_job(job_dir: Path, input_overrides: dict | None = None) -> dict:
     """Run the deterministic AGENTS.md pre-steps and return the loaded job.yaml dict.
 
     init-job -> harden (allow-missing-local, captions off, script) -> copy provided SRT ->
-    storyboard auto with Image/ + Video/ -> chapters-from-srt -> detect intro/ending/CTA ->
-    seed audio-story enhance + audio + NVENC encoder + forced-segmented cap.
+    detect intro/ending/CTA + creative.yaml input overrides -> storyboard auto with Image/ +
+    Video/ -> chapters-from-srt -> seed audio-story enhance + audio + NVENC encoder +
+    forced-segmented cap.
 
     The SRT is staged before the storyboard, not after: storyboard auto reads its chapter
     times to pin each chapter's scenes to that chapter's narration span, and would silently
-    fall back to an even split if the file were not there yet.
+    fall back to an even split if the file were not there yet. The intro/ending images go in
+    first for the same reason: storyboard auto builds the first/last 10s title-card scenes only
+    from what job.yaml names at that moment, so an image named afterwards never reaches the render.
     """
     job_dir = Path(job_dir)
     job_yaml = vc.ensure_job_yaml(job_dir)  # init-job + policy/captions/script harden
 
     _copy_provided_srt(job_dir)
+
+    data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
+    _detect_intro_ending_cta(job_dir, data)
+    _apply_input_overrides(job_dir, data, input_overrides or {})
+    _write_job(job_yaml, data)
 
     images = job_dir / "Image"
     videos = job_dir / "Video"
@@ -358,10 +366,18 @@ def prepare_job(job_dir: Path) -> dict:
     _assert_timing_is_not_silently_degraded(job_dir, job_yaml)
 
     data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
-    _detect_intro_ending_cta(job_dir, data)
     _seed_audio_story_defaults(job_dir, data)
     _write_job(job_yaml, data)
     return data
+
+
+def _apply_input_overrides(job_dir: Path, data: dict, overrides: dict) -> None:
+    """Job-relative input overrides from creative.yaml, for what the filename heuristics cannot
+    resolve — e.g. a folder holding several `thumb*` candidates leaves `intro_image` unset."""
+    for key, value in overrides.items():
+        if not (job_dir / value).exists():
+            raise DirectorError(f"creative inputs.{key} '{value}' does not exist in the job folder")
+        data.setdefault("inputs", {})[key] = value
 
 
 def _assert_timing_is_not_silently_degraded(job_dir: Path, job_yaml: Path) -> None:
@@ -829,12 +845,9 @@ def apply_creative(
     if creative.get("audio", {}).get("music_schedule"):
         data.setdefault("audio", {})["music_schedule"] = creative["audio"]["music_schedule"]
 
-    # Job-relative input overrides, for what the filename heuristics cannot resolve — e.g. a
-    # folder holding several `thumb*` candidates leaves `intro_image` unset.
-    for key, value in creative.get("inputs", {}).items():
-        if not (job_dir / value).exists():
-            raise DirectorError(f"creative inputs.{key} '{value}' does not exist in the job folder")
-        data.setdefault("inputs", {})[key] = value
+    # run() already applied these before the storyboard; re-applying keeps a direct
+    # apply_creative call honouring them too.
+    _apply_input_overrides(job_dir, data, creative.get("inputs", {}))
 
     proj = creative.get("project", {})
     for key in ("title", "description", "recap_previous", "metadata"):  # `chapters` -> chapters.json
@@ -918,11 +931,13 @@ def run(
         print("cloud_director: pinned job.yaml present -> NO-OP (resume run).")
         return job_yaml
 
-    data = prepare_job(job_dir)
-
     creative = None
     if creative_path and Path(creative_path).exists():
         creative = yaml.safe_load(Path(creative_path).read_text(encoding="utf-8")) or {}
+
+    # creative.yaml's input overrides (e.g. which thumbnail is the intro card) must be in place
+    # before prepare_job builds the storyboard.
+    data = prepare_job(job_dir, (creative or {}).get("inputs"))
 
     if creative is not None:
         print(f"cloud_director: applying Claude-authored creative from {creative_path} (no LLM).")

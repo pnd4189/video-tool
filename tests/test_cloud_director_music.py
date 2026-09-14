@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Colab"))
 
@@ -70,6 +71,50 @@ def test_apply_creative_passes_parallax_through(tmp_path: Path) -> None:
     data: dict = {}
     cd.apply_creative(tmp_path, data, {"enhance": {"parallax": True}}, tmp_path, tmp_path)
     assert data["enhance"]["parallax"] is True
+
+
+def _stub_prepare_job(tmp_path: Path, monkeypatch, images: tuple[str, ...]) -> dict:
+    """Stub the CLI out of prepare_job; return the job inputs as `storyboard auto` saw them.
+
+    storyboard auto builds the intro/ending title-card scenes only from what job.yaml names at
+    that moment, so an image named after it never reaches the render."""
+    for rel in images:
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x")
+    job_yaml = tmp_path / "job.yaml"
+
+    def fake_ensure_job_yaml(job_dir: Path) -> Path:
+        job_yaml.write_text("inputs: {voice: voice.wav}\n", encoding="utf-8")
+        return job_yaml
+
+    seen: dict = {}
+
+    def fake_cli(args: list[str]) -> None:
+        if args[:2] == ["storyboard", "auto"]:
+            seen.update((yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}).get("inputs") or {})
+
+    monkeypatch.setattr(cd.vc, "ensure_job_yaml", fake_ensure_job_yaml)
+    monkeypatch.setattr(cd, "_run_cli", fake_cli)
+    monkeypatch.setattr(cd, "_assert_timing_is_not_silently_degraded", lambda job_dir, job_yaml: None)
+    return seen
+
+
+def test_storyboard_sees_the_detected_intro_and_ending_cards(tmp_path: Path, monkeypatch) -> None:
+    seen = _stub_prepare_job(
+        tmp_path, monkeypatch, ("Ảnh bìa Thumbnail-Intro/38.jpg", "Ảnh end video/ending-art.jpg")
+    )
+    cd.prepare_job(tmp_path)
+    assert seen["intro_image"] == "Ảnh bìa Thumbnail-Intro/38.jpg"
+    assert seen["ending_image"] == "Ảnh end video/ending-art.jpg"
+
+
+def test_storyboard_sees_the_creative_intro_override(tmp_path: Path, monkeypatch) -> None:
+    # Two thumbnails leave detection ambiguous, so creative.yaml names the right one — and the
+    # storyboard has to be built with that choice, not without an intro card.
+    seen = _stub_prepare_job(tmp_path, monkeypatch, ("thumbs/thumb-14.jpg", "thumbs/thumb-15.jpg"))
+    cd.prepare_job(tmp_path, {"intro_image": "thumbs/thumb-15.jpg"})
+    assert seen["intro_image"] == "thumbs/thumb-15.jpg"
 
 
 def test_sfx_cue_cap_keeps_the_historical_floor_for_normal_episodes() -> None:
