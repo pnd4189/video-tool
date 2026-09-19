@@ -143,39 +143,21 @@ def _check_parallax_source(local_job: Path, job_yaml: Path, creative_path: Path 
     )
 
 
-def _title_cards(local_job: Path, data: dict) -> set[Path]:
-    """The intro/ending images. storyboard auto places them as static title-card scenes that no
-    Parallax/ clip exists for, so they are not stills waiting for depth."""
-    inputs = data.get("inputs") or {}
-    return {(local_job / str(inputs[k])).resolve() for k in ("intro_image", "ending_image") if inputs.get(k)}
-
-
 def _story_stills(local_job: Path, data: dict) -> int:
-    """Still scenes other than the title cards — the ones on-box depth parallax would work on."""
-    cards = _title_cards(local_job, data)
-    return sum(
-        1 for scene in (data.get("storyboard") or [])
-        if scene.get("image") and (local_job / str(scene["image"])).resolve() not in cards
-    )
+    """Still scenes other than the intro/ending title cards — the ones on-box depth would warp."""
+    from videotool.creative.parallax import story_stills  # noqa: PLC0415
+
+    return story_stills(local_job, data)
 
 
 def _keep_title_cards_static(local_job: Path, job_yaml: Path) -> None:
-    """Switch enhance.parallax off once every story still is already a Parallax/ clip.
+    """Switch enhance.parallax off once every story still is already a Parallax/ clip, so the
+    title cards are not depth-warped (lettering included)."""
+    from videotool.creative.parallax import keep_title_cards_static  # noqa: PLC0415
 
-    The only stills left then are the intro/ending title cards, and on-box depth parallax would
-    just warp them, lettering included. When story stills remain (the explicit on-box opt-in),
-    the flag stays on."""
-    import yaml
-
-    data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
-    enhance = data.get("enhance") or {}
-    if not enhance.get("parallax") or _story_stills(local_job, data):
-        return
-    enhance["parallax"] = False
-    data["enhance"] = enhance
-    job_yaml.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
-    print("runner: every story still is a Parallax/ clip -> enhance.parallax off, so the "
-          "intro/ending title cards stay static instead of being depth-warped on the box.")
+    if keep_title_cards_static(local_job, job_yaml):
+        print("runner: every story still is a Parallax/ clip -> enhance.parallax off, so the "
+              "intro/ending title cards stay static instead of being depth-warped on the box.")
 
 
 def _ffmpeg_supports_p_presets(version_text: str) -> bool:
@@ -448,9 +430,10 @@ def render_job(
     NO LLM — Claude did the authoring. `autonomous=True` is the fallback (on-box LLM) for notebook
     runs with no Claude in the loop.
     """
+    vc.setup(repo_ref=repo_ref or vc.DEFAULT_REPO_REF)
+    # Only now: cloud_director imports the videotool package that setup() just installed.
     import cloud_director  # noqa: PLC0415
 
-    vc.setup(repo_ref=repo_ref or vc.DEFAULT_REPO_REF)
     local_job = Path(local_job)
     stage_in(source_remote, local_job)
 

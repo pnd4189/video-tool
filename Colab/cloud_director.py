@@ -32,7 +32,9 @@ Design decisions (see plan 260707-0855):
   spacing / CTA-skip regions and verify music-cue coverage; a hallucinated encoder or an
   escaping SFX path aborts before render (H8).
 
-No dependency beyond the stdlib + `yaml` (already a videotool dep); LLM calls use urllib.
+The deterministic pre-steps and the creative merge live in the `videotool.creative` package (shared
+with the local path and `videotool creative lint`), so this module needs videotool installed and must
+be imported only after `videotool_cloud.setup()`. LLM calls use urllib.
 """
 
 from __future__ import annotations
@@ -41,17 +43,27 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 import yaml
 
-# Reuse the whisper runner's install-agnostic CLI shim + asset detectors (DRY).
-import videotool_cloud as vc
+# The deterministic rules live in the installed package (one copy for local, cloud and lint).
+# Importing it here is safe: the runner imports this module only after `vc.setup()` installed it.
+from videotool.creative.apply import OVERLAY_LIBRARY as DEFAULT_OVERLAY_LIBRARY
+from videotool.creative.apply import SFX_LIBRARY, apply_creative, infer_pack, read_first
+from videotool.creative.checks import check_music_wiring, pre_render_checks  # noqa: F401 (re-export)
+from videotool.creative.prepare import prepare_job, write_job
+from videotool.creative.rules import (
+    SFX_GAIN_DB,
+    CreativeError,
+    clean_music_cues,
+    filter_sfx_cues,
+    srt_cues,
+    voice_end,
+)
 
-FORCE_SEGMENTED_INLINE_CAP = 1  # schema forbids 0; 1 forces segmented for any >=2-scene job.
 PIN_MARKER = Path(".videotool") / ".cloud_director.pinned"
 
 # Kaggle's Benchmarks Model Proxy: `kaggle benchmarks init` writes a `.env` with an OpenAI-compatible
@@ -61,28 +73,14 @@ PIN_MARKER = Path(".videotool") / ".cloud_director.pinned"
 # reliably up AND passes the Vietnamese homograph SFX test, so it is the default proxy model.
 KAGGLE_PROXY_DEFAULT_MODEL = "google/gemini-3.5-flash"
 
-# SFX density / placement rules (AGENTS.md audio-story defaults).
-SFX_MAX_CUES = 15         # floor; long episodes scale up via _sfx_cue_cap
-SFX_SECONDS_PER_CUE = 420.0  # one cue per ~7 min beyond the floor
-SFX_MIN_SPACING_S = 30.0  # >= 30-60s between clustered cues
-SFX_SKIP_HEAD_S = 30.0    # skip the first 30s (intro / CTA region)
-SFX_SKIP_TAIL_S = 25.0    # skip the last 25s (outro / CTA region)
-SFX_GAIN_DB = -11.0       # point-SFX sit -8..-15 dB under the un-ducked voice
 
-# Channel -> sfx pack (AGENTS.md): kiếm hiệp -> binh-thien, ma hài -> dao-si.
-SFX_PACK_KEYWORDS = {
-    "binh-thien": ("kiếm", "hiệp", "tiên", "tu", "đạo", "chưởng", "giang hồ"),
-    "dao-si": ("ma", "hài", "quỷ", "yêu", "đạo sĩ", "bùa"),
-}
+# Kept under its old name: callers and tests catch `cloud_director.DirectorError`.
+DirectorError = CreativeError
 
 _REDACT_KEYS = ("GLM_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY")
 
 
 # -- Secrets + LLM providers -------------------------------------------------------------
-
-
-class DirectorError(RuntimeError):
-    """Fatal cloud_director error — raised with a message safe to print (no secrets)."""
 
 
 def get_secret(name: str) -> str | None:
@@ -324,226 +322,7 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
-# -- Deterministic pre-steps (NO LLM) ----------------------------------------------------
-
-
-def _run_cli(args: list[str]) -> None:
-    vc._run_cli(args)  # list-form subprocess; safe with VN folder names (L12)
-
-
-def prepare_job(job_dir: Path, input_overrides: dict | None = None) -> dict:
-    """Run the deterministic AGENTS.md pre-steps and return the loaded job.yaml dict.
-
-    init-job -> harden (allow-missing-local, captions off, script) -> copy provided SRT ->
-    detect intro/ending/CTA + creative.yaml input overrides -> storyboard auto with Image/ +
-    Video/ -> chapters-from-srt -> seed audio-story enhance + audio + NVENC encoder +
-    forced-segmented cap.
-
-    The SRT is staged before the storyboard, not after: storyboard auto reads its chapter
-    times to pin each chapter's scenes to that chapter's narration span, and would silently
-    fall back to an even split if the file were not there yet. The intro/ending images go in
-    first for the same reason: storyboard auto builds the first/last 10s title-card scenes only
-    from what job.yaml names at that moment, so an image named afterwards never reaches the render.
-    """
-    job_dir = Path(job_dir)
-    job_yaml = vc.ensure_job_yaml(job_dir)  # init-job + policy/captions/script harden
-
-    _copy_provided_srt(job_dir)
-
-    data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
-    _detect_intro_ending_cta(job_dir, data)
-    _apply_input_overrides(job_dir, data, input_overrides or {})
-    _write_job(job_yaml, data)
-
-    images = job_dir / "Image"
-    videos = job_dir / "Video"
-    args = ["storyboard", "auto", str(job_yaml), "--images-dir", str(images if images.exists() else job_dir / "media")]
-    if videos.exists():
-        args += ["--videos-dir", str(videos)]
-    _run_cli(args)
-
-    _run_cli(["chapters-from-srt", str(job_yaml)])
-    _assert_timing_is_not_silently_degraded(job_dir, job_yaml)
-
-    data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
-    _seed_audio_story_defaults(job_dir, data)
-    _write_job(job_yaml, data)
-    return data
-
-
-def _apply_input_overrides(job_dir: Path, data: dict, overrides: dict) -> None:
-    """Job-relative input overrides from creative.yaml, for what the filename heuristics cannot
-    resolve — e.g. a folder holding several `thumb*` candidates leaves `intro_image` unset."""
-    for key, value in overrides.items():
-        if not (job_dir / value).exists():
-            raise DirectorError(f"creative inputs.{key} '{value}' does not exist in the job folder")
-        data.setdefault("inputs", {})[key] = value
-
-
-def _assert_timing_is_not_silently_degraded(job_dir: Path, job_yaml: Path) -> None:
-    """Stop before the render when the images fell back to an even split they did not need to.
-
-    An episode with no scene plan legitimately gets an even split, and that is fine — it warns
-    and carries on. But an even split in a folder that DOES hold a plan means something broke
-    between the two, and finding that out after an hours-long GPU render costs a whole slot.
-    This is deliberately asymmetric: missing data is a warning, contradicted data is a stop.
-    """
-    from videotool.core.scene_plan import find_scene_plan
-
-    data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
-    source = (data.get("timing") or {}).get("source", "even")
-    if source != "even":
-        print(f"director: image timing = {source}")
-        return
-    plan = find_scene_plan(Path(job_dir))
-    if plan is None:
-        print("director: image timing = even split (no scene plan in this folder)")
-        return
-    raise RuntimeError(
-        f"Timing fell back to an even split even though {plan.name} is present — the plan or "
-        "the narration SRT could not be read. Fix that before spending a render slot."
-    )
-
-
-def _copy_provided_srt(job_dir: Path) -> None:
-    """Copy the user-provided QA SRT to outputs/captions.srt (the burn baseline). No whisper."""
-    srts = [p for p in sorted(job_dir.glob("*_vi_qa.srt"))] or [p for p in sorted(job_dir.glob("*.srt"))]
-    if not srts:
-        return
-    out = job_dir / "outputs"
-    out.mkdir(parents=True, exist_ok=True)
-    shutil.copy(srts[0], out / "captions.srt")
-
-
-def _renumber_srt_chapters(job_dir: Path, mapping: dict) -> int:
-    """Rewrite the chapter numbers in the staged outputs/captions.srt.
-
-    Some episodes ship an SRT whose headings restart per source file ("Chương 1", "Chương 33")
-    while the published episode numbers them absolutely (77-80). Renumbering the burn baseline
-    BEFORE the render is the only way the burned subtitles carry the published numbers — the
-    description can be corrected afterwards, the pixels cannot."""
-    srt = job_dir / "outputs" / "captions.srt"
-    if not srt.exists():
-        raise DirectorError("captions.renumber needs outputs/captions.srt (provided SRT missing)")
-    wanted = {int(k): int(v) for k, v in mapping.items()}
-    seen: set[int] = set()
-
-    def sub(match: "re.Match[str]") -> str:
-        old_num = int(match.group(2))
-        if old_num not in wanted:
-            return match.group(0)
-        seen.add(old_num)
-        return f"{match.group(1)}{wanted[old_num]}{match.group(3)}"
-
-    text, count = re.subn(r"(Chương\s+)(\d+)(\s*:)", sub, srt.read_text(encoding="utf-8"))
-    missing = sorted(set(wanted) - seen)
-    if missing:
-        raise DirectorError(f"captions.renumber: no 'Chương N:' heading found for {missing}")
-    srt.write_text(text, encoding="utf-8")
-    return count
-
-
-def _write_chapters(job_dir: Path, chapters: list) -> None:
-    """Final say over outputs/chapters.json. prepare_job derives it from the SRT headings, which
-    cannot express the extra story beats the description format lists between chapters."""
-    entries = [{"start": float(c["start"]), "title": str(c["title"]).strip()} for c in chapters]
-    out = job_dir / "outputs" / "chapters.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _detect_intro_ending_cta(job_dir: Path, data: dict) -> None:
-    """Filename/subfolder heuristics from AGENTS.md; only set what is unambiguous."""
-    inputs = data.setdefault("inputs", {})
-    thumbs, ends = [], []
-    for p in job_dir.rglob("*"):
-        if p.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
-            continue
-        name = (p.parent.name + " " + p.name).lower()
-        if "thumb" in name:
-            thumbs.append(p)
-        if "end" in name or "outro" in name or "ảnh end" in name:
-            ends.append(p)
-    if len(thumbs) == 1 and not inputs.get("intro_image"):
-        inputs["intro_image"] = str(thumbs[0].relative_to(job_dir))
-    if len(ends) == 1 and not inputs.get("ending_image"):
-        inputs["ending_image"] = str(ends[0].relative_to(job_dir))
-
-    cta = job_dir / "CTA voice"
-    if cta.exists():
-        _set_if_present(inputs, "intro_cta", _first_match(cta, ("intro cta - with voice", "intro cta", "cta-intro")))
-        _set_if_present(inputs, "outro_cta", _first_match(cta, ("outro cta - with voice", "outro cta", "cta-outro")))
-
-
-def _first_match(folder: Path, stems: tuple[str, ...]) -> Path | None:
-    """Find a CTA clip by stem, preferring an animated video (voice baked, e.g. ĐẠO SĨ's
-    `cta-intro.mp4`) over a bare audio file — a plain `sorted()` would pick `cta-intro-voice.mp3`
-    first because '-' < '.'. Video across all stems wins, then audio."""
-    video = sorted(p for p in folder.iterdir() if p.suffix.lower() in (".mp4", ".mov"))
-    audio = sorted(p for p in folder.iterdir() if p.suffix.lower() in (".wav", ".mp3", ".m4a"))
-    for group in (video, audio):
-        for stem in stems:
-            for p in group:
-                if stem in p.name.lower():
-                    return p
-    return None
-
-
-def _set_if_present(inputs: dict, key: str, path: Path | None) -> None:
-    if path is not None and not inputs.get(key):
-        inputs[key] = str(path)
-
-
-def _seed_audio_story_defaults(job_dir: Path, data: dict) -> None:
-    """Audio-story channel defaults + cloud render knobs. Does not enable mood FX (default off)."""
-    enhance = data.setdefault("enhance", {})
-    enhance.setdefault("visualizer", True)
-    enhance.setdefault("subtitles", True)
-    enhance.setdefault("subtitle_color", "yellow")
-
-    inputs = data.setdefault("inputs", {})
-    # `init-job` runs without --music here, so point at the track folder explicitly — without
-    # `inputs.music` the whole music bed (and any music_schedule) is silently dropped at render.
-    if not inputs.get("music"):
-        music_dir = next((d for d in (job_dir / "Music", job_dir / "music") if d.is_dir()), None)
-        if music_dir is not None:
-            inputs["music"] = music_dir.name
-    if not inputs.get("script"):
-        script = vc.detect_script(job_dir)
-        if script is not None:
-            inputs["script"] = script.name
-    template = next(iter(sorted(job_dir.glob("*_DESCRIPTION_TEMPLATE.txt"))), None)
-    if template and not inputs.get("description_template"):
-        inputs["description_template"] = template.name
-
-    render = data.setdefault("render", {})
-    render["encoder"] = "h264_nvenc-capped"
-    render["max_inline_scenes"] = FORCE_SEGMENTED_INLINE_CAP
-
-
 # -- LLM tasks ---------------------------------------------------------------------------
-
-
-def _read(job_dir: Path, pattern: str) -> str:
-    matches = sorted(job_dir.glob(pattern))
-    return matches[0].read_text(encoding="utf-8") if matches else ""
-
-
-def _srt_lines(job_dir: Path) -> list[tuple[float, str]]:
-    """Parse outputs/captions.srt into (start_seconds, text) pairs for the SFX/chapter prompts."""
-    srt = job_dir / "outputs" / "captions.srt"
-    if not srt.exists():
-        return []
-    out: list[tuple[float, str]] = []
-    blocks = re.split(r"\n\s*\n", srt.read_text(encoding="utf-8").strip())
-    for block in blocks:
-        m = re.search(r"(\d\d):(\d\d):(\d\d)[,.](\d\d\d)\s*-->", block)
-        if not m:
-            continue
-        h, mi, s, ms = (int(x) for x in m.groups())
-        text = " ".join(block.splitlines()[2:]).strip()
-        out.append((h * 3600 + mi * 60 + s + ms / 1000.0, text))
-    return out
 
 
 def _chapter_seconds(data: dict) -> list[tuple[float, str]]:
@@ -553,12 +332,12 @@ def _chapter_seconds(data: dict) -> list[tuple[float, str]]:
 def author_music_schedule(provider: str, job_dir: Path, data: dict) -> None:
     """Map each music track to the chapter range whose mood fits; write audio.music_schedule."""
     tracks = sorted((job_dir / "Music").glob("*")) if (job_dir / "Music").exists() else []
-    prompts = _read(job_dir, "*_music_prompts.txt") or _read(job_dir, "*music_prompt*.txt")
+    prompts = read_first(job_dir, "*_music_prompts.txt") or read_first(job_dir, "*music_prompt*.txt")
     chapters = _chapter_seconds(data)
     if len(tracks) < 2 or not prompts or not chapters:
         return  # unset -> concat + loop (schema default)
 
-    voice_end = max((t for t, _ in _srt_lines(job_dir)), default=0.0) or chapters[-1][0] + 60
+    end_s = voice_end(srt_cues(job_dir)) or chapters[-1][0] + 60
     system = (
         "You place background-music tracks over an audiobook timeline. Block i of the music "
         "prompts maps to track i (1-based). Return JSON {\"cues\":[{\"track\":int,\"start\":sec,"
@@ -569,39 +348,18 @@ def author_music_schedule(provider: str, job_dir: Path, data: dict) -> None:
         f"Tracks (1..{len(tracks)}): {[t.name for t in tracks]}\n"
         f"Music prompt blocks:\n{prompts[:4000]}\n"
         f"Chapter markers (sec,title): {chapters}\n"
-        f"Narration ends at ~{voice_end:.0f}s. Emit {len(tracks)} cues, one per track, in story order."
+        f"Narration ends at ~{end_s:.0f}s. Emit {len(tracks)} cues, one per track, in story order."
     )
     obj = _ask_json(provider, system, user, ("cues",))
-    cues = _clean_music_cues(obj["cues"], len(tracks), voice_end)
+    cues = clean_music_cues(obj["cues"], len(tracks), end_s)
     if cues:
         data.setdefault("audio", {})["music_schedule"] = cues
 
 
-def _clean_music_cues(raw: list, ntracks: int, voice_end: float) -> list[dict]:
-    """Sort, clamp, and drop overlaps so the schedule satisfies job_spec's disjoint validator."""
-    cues = []
-    for c in raw:
-        try:
-            track, start, end = int(c["track"]), float(c["start"]), float(c["end"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if not 1 <= track <= ntracks or end <= start:
-            continue
-        cues.append({"track": track, "start": max(0.0, start), "end": min(end, voice_end)})
-    cues.sort(key=lambda c: c["start"])
-    disjoint: list[dict] = []
-    for c in cues:
-        if disjoint and c["start"] < disjoint[-1]["end"]:
-            c["start"] = disjoint[-1]["end"]
-        if c["end"] > c["start"]:
-            disjoint.append(c)
-    return disjoint
-
-
 def author_sfx_cues(provider: str, job_dir: Path, data: dict, sfx_library: Path, pack: str | None) -> None:
     """Pick unambiguous action SFX from the pack, pin by SRT time, copy into <job>/sfx/."""
-    lines = _srt_lines(job_dir)
-    pack = pack or _infer_pack(job_dir)
+    lines = srt_cues(job_dir)
+    pack = pack or infer_pack(job_dir)
     pack_dir = Path(sfx_library) / pack
     if not lines or not pack_dir.exists():
         return
@@ -609,8 +367,8 @@ def author_sfx_cues(provider: str, job_dir: Path, data: dict, sfx_library: Path,
     if not available:
         return
 
-    voice_end = max((t for t, _ in lines), default=0.0)
-    transcript = "\n".join(f"[{t:.1f}] {txt}" for t, txt in lines if txt)
+    end_s = voice_end(lines)
+    transcript = "\n".join(f"[{t:.1f}] {txt}" for t, _, txt in lines if txt)
     system = (
         "You add one-shot sound effects to an audiobook. Choose ONLY unambiguous physical-action "
         "moments (a sword clash, a door slam, thunder) — skip metaphors and homographs. Return JSON "
@@ -619,11 +377,11 @@ def author_sfx_cues(provider: str, job_dir: Path, data: dict, sfx_library: Path,
     )
     user = (
         f"Available SFX files: {available}\n"
-        f"Narration ends at ~{voice_end:.0f}s.\n"
+        f"Narration ends at ~{end_s:.0f}s.\n"
         f"Timestamped narration:\n{transcript[:8000]}"
     )
     obj = _ask_json(provider, system, user, ("cues",))
-    cues = _filter_sfx_cues(obj["cues"], set(available), voice_end)
+    cues = filter_sfx_cues(obj["cues"], set(available), end_s)
     if not cues:
         return
     dest = job_dir / "sfx"
@@ -635,57 +393,9 @@ def author_sfx_cues(provider: str, job_dir: Path, data: dict, sfx_library: Path,
     data.setdefault("enhance", {})["sfx"] = {"enabled": True, "pack": pack, "cues": final}
 
 
-def _infer_pack(job_dir: Path) -> str:
-    text = (_read(job_dir, "*_music_prompts.txt") + " " + _read(job_dir, "*_vi_qa.txt")[:2000]).lower()
-    best, score = "binh-thien", 0
-    for pack, words in SFX_PACK_KEYWORDS.items():
-        hits = sum(text.count(w) for w in words)
-        if hits > score:
-            best, score = pack, hits
-    return best
-
-
-def _sfx_cue_cap(voice_end: float) -> int:
-    """How many cues an episode of this length may keep.
-
-    A flat 15 was tuned for ~90-105 min episodes. The 15-chapter format (~2.6 h, from Bình Thiên
-    Chap 31) hits that cap two thirds of the way in, and since cues are kept in time order the
-    whole climax would end up silent. Scale with duration; never below the historical floor, so
-    every episode up to ~105 min keeps its exact previous behaviour."""
-    return max(SFX_MAX_CUES, int(voice_end // SFX_SECONDS_PER_CUE))
-
-
-def _filter_sfx_cues(raw: list, available: set[str], voice_end: float) -> list[dict]:
-    """Enforce AGENTS.md density: known files only, skip head/tail CTA regions, min spacing,
-    hard cap on count. The model's placement is a suggestion; these caps are the contract.
-
-    A cue's `gain_db` rides along when set, so a file reused later in the episode keeps its own
-    level instead of inheriting the first cue's."""
-    picked: list[dict] = []
-    cap = _sfx_cue_cap(voice_end)
-    for c in sorted(raw, key=lambda c: c.get("time", 0)):
-        try:
-            time, name = float(c["time"]), str(c["file"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if name not in available:
-            continue
-        if time < SFX_SKIP_HEAD_S or time > voice_end - SFX_SKIP_TAIL_S:
-            continue
-        if picked and time - picked[-1]["time"] < SFX_MIN_SPACING_S:
-            continue
-        entry = {"time": time, "file": name}
-        if c.get("gain_db") is not None:
-            entry["gain_db"] = c["gain_db"]
-        picked.append(entry)
-        if len(picked) >= cap:
-            break
-    return picked
-
-
 def author_description(provider: str, job_dir: Path, data: dict) -> None:
     """Author project.description + project.recap_previous from the vi.txt script."""
-    script = _read(job_dir, "*_vi_qa.txt") or _read(job_dir, "*_vi.txt")
+    script = read_first(job_dir, "*_vi_qa.txt") or read_first(job_dir, "*_vi.txt")
     if not script:
         return
     system = (
@@ -707,10 +417,10 @@ def author_chapters_fallback(provider: str, job_dir: Path, data: dict) -> None:
     """Only when chapters-from-srt found <3 markers: derive chapter titles from the narration."""
     if len(data.get("project", {}).get("chapters", [])) >= 3:
         return
-    lines = _srt_lines(job_dir)
+    lines = srt_cues(job_dir)
     if not lines:
         return
-    transcript = "\n".join(f"[{t:.1f}] {txt}" for t, txt in lines if txt)
+    transcript = "\n".join(f"[{t:.1f}] {txt}" for t, _, txt in lines if txt)
     system = (
         "Split an audiobook into 3-8 chapters. Return JSON {\"chapters\":[{\"start\":sec,"
         "\"title\":str}]}. First chapter starts at 0. Titles in Vietnamese, short."
@@ -725,193 +435,14 @@ def author_chapters_fallback(provider: str, job_dir: Path, data: dict) -> None:
         data.setdefault("project", {})["chapters"] = sorted(chapters, key=lambda c: c["start"])
 
 
-# -- Pre-render gate ---------------------------------------------------------------------
-
-
-def pre_render_checks(job_dir: Path, job_yaml: Path) -> None:
-    """`videotool validate` PLUS the checks it omits (H8): encoder must be a real profile,
-    every SFX cue file must exist inside the job folder, and the music bed must be wired.
-    Abort BEFORE any GPU time."""
-    _run_cli(["validate", str(job_yaml)])  # raises on schema / path errors
-
-    data = yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}
-    check_music_wiring(Path(job_dir), data)
-    encoder = data.get("render", {}).get("encoder", "libx264-balanced")
-    valid = _known_profiles()
-    if encoder not in valid:
-        raise DirectorError(f"render.encoder '{encoder}' is not a known profile ({sorted(valid)}).")
-
-    job_dir = Path(job_dir).resolve()
-    for cue in data.get("enhance", {}).get("sfx", {}).get("cues", []):
-        path = (job_dir / cue["file"]).resolve()
-        if not path.is_relative_to(job_dir):
-            raise DirectorError(f"SFX cue escapes job folder: {cue['file']}")
-        if not path.exists():
-            raise DirectorError(f"SFX cue file missing: {cue['file']}")
-
-    overlay = data.get("inputs", {}).get("particle_overlay")
-    if overlay:
-        path = (job_dir / overlay).resolve()
-        if not path.is_relative_to(job_dir):
-            raise DirectorError(f"particle_overlay escapes job folder: {overlay}")
-        if not path.exists():
-            raise DirectorError(f"particle_overlay file missing: {overlay}")
-
-
-MUSIC_SUFFIXES = (".mp3", ".wav", ".m4a", ".flac", ".ogg")
-
-
-def check_music_wiring(job_dir: Path, data: dict) -> None:
-    """Abort when the folder ships music tracks but the job would render silent.
-
-    `services._stage_music` drops the whole bed (and any `audio.music_schedule`) unless
-    `inputs.music` points at the tracks, so a missing key is a silent quality loss, not an
-    error — it has to be caught here, before the GPU time is spent.
-    """
-    music = data.get("inputs", {}).get("music")
-    if music:
-        path = job_dir / music
-        if not path.exists():
-            raise DirectorError(f"inputs.music '{music}' does not exist in the job folder.")
-        return
-
-    if data.get("audio", {}).get("music_schedule"):
-        raise DirectorError("audio.music_schedule is set but inputs.music is not — the bed would be dropped.")
-    for name in ("Music", "music"):
-        folder = job_dir / name
-        if folder.is_dir() and any(p.suffix.lower() in MUSIC_SUFFIXES for p in folder.iterdir()):
-            raise DirectorError(f"'{name}/' holds music tracks but inputs.music is unset — the bed would be dropped.")
-
-
-def _known_profiles() -> set[str]:
-    """The render profiles the installed videotool accepts (import if available, else the
-    known set). Kept in sync with `render/profiles.py`."""
-    try:
-        from videotool.render.profiles import PROFILES  # noqa: PLC0415
-
-        return set(PROFILES)
-    except Exception:
-        return {"libx264-balanced", "libx264-fast", "libx264-balanced-capped", "h264_nvenc-capped"}
-
-
-# -- Claude-authored creative merge (DEFAULT path — no on-Kaggle LLM) --------------------
-
-
-DEFAULT_OVERLAY_LIBRARY = Path.home() / ".local/share/videotool/overlays"
-
-
-def apply_creative(
-    job_dir: Path,
-    data: dict,
-    creative: dict,
-    sfx_library: Path,
-    overlay_library: Path,
-) -> None:
-    """Merge a Claude Code CLI-authored `creative.yaml` into the deterministic job.yaml — the
-    DEFAULT authoring path. Claude (Opus) does the intelligent work locally (music_schedule, SFX
-    cue selection with VN homograph filtering, mood + atmosphere overlay, description/recap) and
-    this just applies it, copying the NAMED sfx + overlay files from the staged libraries into the
-    job folder. No LLM runs on the render box.
-
-    creative.yaml shape (all keys optional):
-        audio: {music_schedule: [{track,start,end,gain_db?}, ...]}
-        enhance:
-            mood: cozy            # clean|melancholy|cozy|horror|action
-            grain: false          # default false — grain eats the capped bitrate budget
-            overlay: fireflies-gen-01.mp4   # filename in the overlay library -> copied into job
-            sfx: {pack: dao-si, cues: [{time, file, gain_db?}, ...]}
-        captions: {renumber: {1: 77, 33: 78}}   # fix chapter numbers in the BURNED subtitles
-        project:
-            chapters: [{start: 0.0, title: "Chương 77: ..."}, ...]  # final say over chapters.json
-            title: "<full YouTube title>"        # also becomes the published mp4 filename
-            description: "..."
-            recap_previous: "..."
-            metadata: {channel, channel_url, original_author, copyright, subtitle, release_date}
-        inputs: {intro_image: "Ảnh bìa Thumbnail-Intro/15.jpg", ...}  # job-relative overrides
-    """
-    # Burned-subtitle chapter numbers, then the chapter list itself: both must run before the
-    # render, and the renumber must precede the re-derive so chapters.json picks up new numbers.
-    renumber = (creative.get("captions") or {}).get("renumber")
-    if renumber:
-        replaced = _renumber_srt_chapters(job_dir, renumber)
-        print(f"director: renumbered {replaced} chapter heading(s) in outputs/captions.srt")
-        _run_cli(["chapters-from-srt", str(job_dir / "job.yaml")])
-
-    chapters = (creative.get("project") or {}).get("chapters")
-    if chapters:
-        _write_chapters(job_dir, chapters)
-        print(f"director: wrote {len(chapters)} chapter marker(s) from creative.yaml")
-
-    if creative.get("audio", {}).get("music_schedule"):
-        data.setdefault("audio", {})["music_schedule"] = creative["audio"]["music_schedule"]
-
-    # run() already applied these before the storyboard; re-applying keeps a direct
-    # apply_creative call honouring them too.
-    _apply_input_overrides(job_dir, data, creative.get("inputs", {}))
-
-    proj = creative.get("project", {})
-    for key in ("title", "description", "recap_previous", "metadata"):  # `chapters` -> chapters.json
-        if proj.get(key):
-            data.setdefault("project", {})[key] = proj[key]
-
-    enh = creative.get("enhance", {})
-    denh = data.setdefault("enhance", {})
-    if enh.get("mood"):
-        denh["mood"] = enh["mood"]
-        # Grain (auto-on for most moods) balloons a capped H264's quality/size — keep it off unless
-        # explicitly asked (memory: melancholy-grain-bitrate-blowup).
-        denh["grain"] = enh.get("grain", False)
-    for key in ("vignette", "glow", "flicker", "color_grade"):
-        if key in enh:
-            denh[key] = enh[key]
-    # 2.5D depth-parallax stills. When the episode ships no pre-rendered Parallax/ folder, the
-    # render box materializes the clips from DepthAnything at render time (enhance.parallax).
-    if enh.get("parallax") is not None:
-        denh["parallax"] = enh["parallax"]
-
-    overlay = enh.get("overlay")
-    if overlay:
-        src = Path(overlay_library) / overlay
-        if not src.exists():
-            raise DirectorError(f"overlay '{overlay}' not found in library {overlay_library}")
-        shutil.copy(src, job_dir / src.name)  # validation requires the overlay INSIDE the job
-        data.setdefault("inputs", {})["particle_overlay"] = src.name
-        denh["atmosphere"] = True
-
-    sfx = enh.get("sfx")
-    if sfx and sfx.get("cues"):
-        pack = sfx.get("pack") or _infer_pack(job_dir)
-        pack_dir = Path(sfx_library) / pack
-        dest = job_dir / "sfx"
-        dest.mkdir(exist_ok=True)
-        final = []
-        for cue in _filter_sfx_cues(
-            [{"time": c["time"], "file": Path(c["file"]).name, "gain_db": c.get("gain_db")} for c in sfx["cues"]],
-            {p.name for p in pack_dir.glob("*")},
-            max((t for t, _ in _srt_lines(job_dir)), default=1e9),
-        ):
-            src = pack_dir / cue["file"]
-            if not src.exists():
-                raise DirectorError(f"sfx cue '{cue['file']}' not found in pack {pack_dir}")
-            shutil.copy(src, dest / cue["file"])
-            gain = cue.get("gain_db")
-            final.append({"time": round(cue["time"], 2), "file": f"sfx/{cue['file']}", "gain_db": gain if gain is not None else SFX_GAIN_DB})
-        if final:
-            denh["sfx"] = {"enabled": True, "pack": pack, "cues": final}
-
-
 # -- Orchestrator ------------------------------------------------------------------------
-
-
-def _write_job(job_yaml: Path, data: dict) -> None:
-    job_yaml.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
 def run(
     job_dir: str | Path,
     creative_path: str | Path | None = None,
     provider: str | None = None,
-    sfx_library: str | Path = Path.home() / ".local/share/videotool/sfx",
+    sfx_library: str | Path = SFX_LIBRARY,
     overlay_library: str | Path = DEFAULT_OVERLAY_LIBRARY,
     sfx_pack: str | None = None,
     autonomous: bool = False,
@@ -952,7 +483,7 @@ def run(
     else:
         print("cloud_director: deterministic job.yaml only (no creative.yaml, not autonomous).")
 
-    _write_job(job_yaml, data)
+    write_job(job_yaml, data)
     pre_render_checks(job_dir, job_yaml)
 
     (job_dir / PIN_MARKER).parent.mkdir(parents=True, exist_ok=True)

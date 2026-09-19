@@ -16,6 +16,9 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Colab"))
 
 import cloud_director as cd  # noqa: E402
+from videotool.creative import apply as apply_mod  # noqa: E402
+from videotool.creative import prepare as prep  # noqa: E402
+from videotool.creative import rules  # noqa: E402
 
 
 def _job_with_music(tmp_path: Path, folder: str = "Music") -> Path:
@@ -27,13 +30,13 @@ def _job_with_music(tmp_path: Path, folder: str = "Music") -> Path:
 def test_seed_points_inputs_music_at_the_track_folder(tmp_path: Path) -> None:
     _job_with_music(tmp_path)
     data: dict = {}
-    cd._seed_audio_story_defaults(tmp_path, data)
+    prep.seed_audio_story_defaults(tmp_path, data)
     assert data["inputs"]["music"] == "Music"
 
 
 def test_seed_leaves_inputs_music_unset_without_tracks(tmp_path: Path) -> None:
     data: dict = {}
-    cd._seed_audio_story_defaults(tmp_path, data)
+    prep.seed_audio_story_defaults(tmp_path, data)
     assert "music" not in data["inputs"]
 
 
@@ -94,9 +97,9 @@ def _stub_prepare_job(tmp_path: Path, monkeypatch, images: tuple[str, ...]) -> d
         if args[:2] == ["storyboard", "auto"]:
             seen.update((yaml.safe_load(job_yaml.read_text(encoding="utf-8")) or {}).get("inputs") or {})
 
-    monkeypatch.setattr(cd.vc, "ensure_job_yaml", fake_ensure_job_yaml)
-    monkeypatch.setattr(cd, "_run_cli", fake_cli)
-    monkeypatch.setattr(cd, "_assert_timing_is_not_silently_degraded", lambda job_dir, job_yaml: None)
+    monkeypatch.setattr(prep, "ensure_job_yaml", fake_ensure_job_yaml)
+    monkeypatch.setattr(prep, "run_cli", fake_cli)
+    monkeypatch.setattr(prep, "assert_timing_not_degraded", lambda job_dir, job_yaml: None)
     return seen
 
 
@@ -119,19 +122,19 @@ def test_storyboard_sees_the_creative_intro_override(tmp_path: Path, monkeypatch
 
 def test_sfx_cue_cap_keeps_the_historical_floor_for_normal_episodes() -> None:
     # <= ~105 min episodes must behave exactly as before (flat 15).
-    assert cd._sfx_cue_cap(2700.0) == 15   # 45 min
-    assert cd._sfx_cue_cap(6300.0) == 15   # 105 min
+    assert rules.sfx_cue_cap(2700.0) == 15   # 45 min
+    assert rules.sfx_cue_cap(6300.0) == 15   # 105 min
 
 
 def test_sfx_cue_cap_scales_with_a_15_chapter_episode() -> None:
     # 158 min (Bình Thiên Chap 31): a flat 15 would stop at ~2/3 of the runtime and leave the
     # climax silent, because cues are kept in time order.
-    assert cd._sfx_cue_cap(9516.0) == 22
+    assert rules.sfx_cue_cap(9516.0) == 22
 
 
 def test_filter_sfx_cues_keeps_late_cues_on_a_long_episode() -> None:
     raw = [{"time": 60.0 + i * 400.0, "file": "a.mp3"} for i in range(21)]
-    kept = cd._filter_sfx_cues(raw, {"a.mp3"}, 9516.0)
+    kept = rules.filter_sfx_cues(raw, {"a.mp3"}, 9516.0)
     assert len(kept) == 21
     assert kept[-1]["time"] > 8000.0
 
@@ -177,7 +180,7 @@ def test_renumber_srt_chapters_rewrites_burn_baseline(tmp_path) -> None:
         "3\n00:10:00,000 --> 00:10:02,000\n\" Chương 33: Dị biến (4).\n",
         encoding="utf-8",
     )
-    replaced = cd._renumber_srt_chapters(tmp_path, {1: 77, 33: 78})
+    replaced = apply_mod.renumber_srt_chapters(tmp_path, {1: 77, 33: 78})
     text = (outputs / "captions.srt").read_text(encoding="utf-8")
 
     assert replaced == 2
@@ -192,7 +195,7 @@ def test_renumber_srt_chapters_fails_loudly_on_unknown_number(tmp_path) -> None:
     outputs.mkdir()
     (outputs / "captions.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nChương 1: A.\n", encoding="utf-8")
     with pytest.raises(cd.DirectorError):
-        cd._renumber_srt_chapters(tmp_path, {5: 90})
+        apply_mod.renumber_srt_chapters(tmp_path, {5: 90})
 
 
 def test_write_chapters_overrides_the_srt_derived_list(tmp_path) -> None:
@@ -200,7 +203,7 @@ def test_write_chapters_overrides_the_srt_derived_list(tmp_path) -> None:
     # story beats between them, so creative.yaml gets the final say.
     (tmp_path / "outputs").mkdir()
     (tmp_path / "outputs" / "chapters.json").write_text('[{"start": 0.0, "title": "cũ"}]', encoding="utf-8")
-    cd._write_chapters(tmp_path, [
+    apply_mod.write_chapters(tmp_path, [
         {"start": 0, "title": "Chương 77: Khách viếng thăm đêm tuyết (1)"},
         {"start": 697.5, "title": " Ổ khóa hóa chìa khóa "},
     ])
