@@ -1,0 +1,105 @@
+# Claude-authored creative layer — ĐẠO SĨ Sợ Ma Tập 38 = TẬP CUỐI (chương 109-113: Chân tướng 2-5 + Vĩ thanh).
+# SRT đánh số tương đối 30..34 → renumber 109..113 TRƯỚC render (sub cháy đúng số).
+# Narration 4978,06s (82,97 phút) — WAV 24kHz mono 16-bit, khớp đúng end cue cuối của SRT.
+# CTA: intro v2 (16,853s) + OUTRO RIÊNG TẬP CUỐI `cta-outro-v2-final.mp4` (cùng hình v2, lời cảm ơn
+# trọn bộ 38 tập thay cho "hẹn gặp lại tập sau" — user duyệt 2026-09-13).
+# Overlay ĐOM ĐÓM `fireflies-gen-01` (user chỉ định), mood TẮT, parallax 129/129 clip.
+# Size: (2500+256)kbps × ~5022s / 8 ≈ 1,73 GB — dưới trần 4,5 GB của user.
+
+render:
+  bitrate_cap: 2500k
+
+inputs:
+  intro_image: "Ảnh bìa Thumbnail-Intro/38.jpg"
+  ending_image: "Ảnh end video/dao-si-so-ma-ending-full-art-1920x1080-selected.jpg"
+  intro_cta: "CTA voice/cta-intro-v2.mp4"
+  outro_cta: "CTA voice/cta-outro-v2-final.mp4"
+
+captions:
+  renumber: {30: 109, 31: 110, 32: 111, 33: 112, 34: 113}
+
+audio:
+  # Music/ (natural sort): 1 The_Fox_at_the_Riverbank (myst — hồ ly) · 2 Lanterns_on_the_River
+  # (myst đêm) · 3 Before_the_River_Recedes (norm êm) · 4 Morning_Light_at_the_Ferry (norm sáng)
+  music_schedule:
+    - {track: 1, start: 0,       end: 883.48}   # Ch109a: Tam Nương che ô trong mưa, điện thoại màn hình xanh, sét
+    - {track: 2, start: 883.48,  end: 1351.54}  # Ch109b: căn lầu hai hoang tàn, gã cởi trần xoay cổ 180 độ
+    - {track: 4, start: 1351.54, end: 1817.52}  # Ch110a: sủi cảo nhân cơm nguội, Ngô Dục "nhân vật chính" (hài)
+    - {track: 2, start: 1817.52, end: 2249.48}  # Ch110b: vợ chồng già cầm rìu, tủ nổ tung, rượt tới sông máu
+    - {track: 3, start: 2249.48, end: 3062.38}  # Ch110c-Ch111a: sảnh dát vàng, lão lái đò, hồ lô
+    - {track: 4, start: 3062.38, end: 3351.76}  # Ch111b: về phố khỏa thân, đồn cảnh sát, Husky (hài)
+    - {track: 1, start: 3351.76, end: 4290.76}  # Ch111c-Ch112: Cải Mệnh Nhân, Thiên Thư, phôi thai
+    - {track: 3, start: 4290.76, end: 4652.08}  # Ch113a: lầu hai trống vắng, hồi tưởng, phần thưởng
+    - {track: 4, start: 4652.08, end: 4978.06}  # Ch113b: tiếng ồn ào quen thuộc — kết ấm áp
+
+enhance:
+  parallax: true          # Parallax/ có đủ 129/129 clip -> parallax-link swap, KHÔNG chạy depth trên box
+  overlay: fireflies-gen-01.mp4
+  sfx:
+    pack: dao-si
+    # 15 cue / 83 phút (cap = max(15, 4975//420=11) = 15 — đầy cap). 12 file, KHÔNG file nào quá
+    # 2 lần (Thunder Crack ×2, horror-stinger ×2, Concussive ×2, còn lại ×1).
+    # Gap nhỏ nhất 35,5s (≥30). Cue đầu 134,24s (≥30); cue cuối 4885,86s (< 4975,06−25).
+    # Pin bằng nội suy ký tự trong cue SRT; gain theo max_volume đo được để đỉnh ≈ −16 dBFS
+    # (whisper/bed-dài eerie wind thấp hơn để không lấn giọng đọc).
+    cues:
+      - {time: 134.24,  file: Distant Thunder.mp3,                                    gain_db: -17}  # sét giật, mưa rầm rập (Ch109)
+      - {time: 621.92,  file: Thunder Crack.mp3,                                      gain_db: -12}  # sét đánh trúng cây khô cạnh Tam Nương (Ch109, hài)
+      - {time: 1025.15, file: freesound_community-horror-stinger-14696.mp3,           gain_db: -16}  # gã cởi trần xoay cổ 180 độ (Ch109)
+      - {time: 1884.57, file: dragon-studio-ghost-whisper-351569.mp3,                 gain_db: -16}  # oán khí, vô số khuôn mặt sau lưng vợ chồng già (Ch110)
+      - {time: 2038.41, file: Concussive Hit Guitar Boing.mp3,                        gain_db: -9}   # tủ quần áo nổ tung (Ch110, hài)
+      - {time: 2073.87, file: soundreality-pop-423717.mp3,                            gain_db: -16}  # quần áo "xoạc" rách tả tơi (Ch110, hài)
+      - {time: 2237.56, file: freesound_community-the-horror-realisation-86941.mp3,   gain_db: -8}   # nước sông hóa đỏ rực (Ch110)
+      - {time: 2959.54, file: creatorshome-sharp-pop-328170.mp3,                      gain_db: -16}  # "xèo" lão lái đò bị hút vào hồ lô (Ch111, climax hài)
+      - {time: 3168.60, file: freesound_community-dj-scratch-87179.mp3,               gain_db: -5}   # phát hiện đang khỏa thân giữa phố (Ch111, hài)
+      - {time: 3365.10, file: freesound_community-horror-stinger-14696.mp3,           gain_db: -16}  # "Cải Mệnh Nhân!" chặn đường (Ch111)
+      - {time: 4083.43, file: freesound_community-jump-scare-sound-2-82831.mp3,       gain_db: -14}  # phôi thai mở mắt cười nham hiểm (Ch112, climax)
+      - {time: 4310.72, file: dragon-studio-door-creaking-335491.mp3,                 gain_db: -6}   # mở cửa lao vào lầu hai (Ch113)
+      - {time: 4369.81, file: dragon-studio-eerie-wind-478386.mp3,                    gain_db: -18}  # căn nhà trống rỗng lạnh lẽo (Ch113)
+      - {time: 4579.00, file: Concussive Hit Guitar Boing.mp3,                        gain_db: -9}   # phần thưởng 0,5 điểm, đau đớn bịt mặt (Ch113, hài)
+      - {time: 4885.86, file: Thunder Crack.mp3,                                      gain_db: -12}  # Tam Nương giơ điện thoại "hút tia sét" (Ch113, callback)
+
+project:
+  # Hook title đúng dòng Tập 38 trong dao-si-youtube-metadata_v9.md; "|" viết thành " - ";
+  # thêm "(Tập Cuối)" theo quyết định của user 2026-09-13 (98 ký tự, dưới trần 100).
+  title: "Đình đám Douban (MXH sách/phim TQ): Nơi Cực Âm hé lộ chân tướng - Đạo sĩ sợ ma - Tập 38 (Tập Cuối)"
+  metadata:
+    channel: "HUYỀN DỊCH CÁC"
+    channel_url: "https://www.youtube.com/@HuyenDichCac"
+    original_author: "Hiên Viên Tiểu Bàng"
+    copyright: "Bản dịch & sản xuất audio: Huyền Dịch Các. Nguyên tác thuộc về tác giả Hiên Viên Tiểu Bàng."
+    subtitle: "Chương 109-113"
+    release_date: "2026-09-13"
+  chapters:
+    - {start: 0.0,     title: "Chương 109: Chân tướng (2)"}
+    - {start: 400.64,  title: "Tam Nương mê tít 'pháp bảo' điện thoại màn hình xanh"}
+    - {start: 1004.42, title: "Gã cởi trần xoay cổ 180 độ: Mister Mã?"}
+    - {start: 1351.54, title: "Chương 110: Chân tướng (3)"}
+    - {start: 1817.52, title: "Cặp vợ chồng già cầm rìu đập cửa phòng Ngô Dục"}
+    - {start: 2033.48, title: "Tủ quần áo nổ tung, gã khổng lồ khỏa thân xuất hiện"}
+    - {start: 2303.46, title: "Sảnh dát vàng: Mã Kiến Dân chia tiền cá cược"}
+    - {start: 2640.90, title: "Lão lái đò ngủ gật chính là trái tim Nơi Cực Âm"}
+    - {start: 2785.44, title: "Chương 111: Chân tướng (4)"}
+    - {start: 2931.98, title: "Mở nắp hồ lô, gọi một tiếng: Nơi Cực Âm?"}
+    - {start: 3351.76, title: "Cải Mệnh Nhân và cuốn Thiên Thư ghi mệnh vạn vật"}
+    - {start: 3542.24, title: "Chương 112: Chân tướng (5)"}
+    - {start: 3809.20, title: "Cái tên không hề có trên Thiên Thư"}
+    - {start: 4038.16, title: "Ngươi tưởng chỉ có một Nơi Cực Âm sao?"}
+    - {start: 4308.08, title: "Chương 113: Vĩ thanh"}
+    - {start: 4372.08, title: "Ngồi trước cửa nhớ lại những lần gặp đầu tiên"}
+    - {start: 4503.22, title: "Lý Bác Thông mang phần thưởng tới cho đấng cứu thế"}
+    - {start: 4652.08, title: "Tiếng ồn ào quen thuộc sau cánh cửa lầu hai"}
+  description: >-
+    Thân thể còn chưa mọc lại, Mã Lực Thuật đã phải trơ mắt nhìn Tam Nương mê tít chiếc điện thoại
+    màn hình xanh, còn một tia sét giáng xuống ngay bên cạnh khiến cô tin sái cổ đó là "pháp bảo"
+    hút sét. Lạc vào sảnh dát vàng không cửa không lối thoát, cậu gặp lại Mã Kiến Dân đang chia tiền
+    cá cược cho đám người "tẩu hỏa nhập ma", và lão lái đò đội nón lá ngủ gật trong góc chính là
+    trái tim của Nơi Cực Âm - thứ họ đã thất bại 3768 lần vẫn không diệt nổi. Rồi Cải Mệnh Nhân mở
+    cuốn Thiên Thư, hé lộ chân tướng về chính sự ra đời của Mã Lực Thuật. Nghe ngay Tập 38 - tập cuối!
+  recap_previous: >-
+    Bị chém rơi đầu hết lần này tới lần khác, Mã Lực Thuật lạc về căn lầu hai thời anh em Quan Hưng
+    còn sống, rồi tỉnh dậy với thân hình tí hon trong biệt thự tây nhà họ Khổng, nơi gã trung niên
+    lật mặt và bị bảy tám bóng ma chết đuối lôi xuống bùn đen. Để cứu Khổng Đình khỏi ả nha hoàn
+    Tiểu Hồng, cậu nhờ Ma Đầu Lâu chặt phăng đầu mình rồi ngậm tóc bay lên tầng hai, nào ngờ vừa nở
+    nụ cười thân thiện, Khổng Đình đã lăn ra ngất, còn cái đầu cậu bị ném vụt qua cửa sổ. Ngậm chặt
+    cành cây giữa trời, cậu bị Tam Nương trêu cho rơi xuống - và người đỡ lấy cậu lại chính là Vân Mỹ.

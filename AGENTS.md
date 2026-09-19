@@ -1,345 +1,140 @@
 # Video Tool — Agent Guide
 
-Canonical workflow doc. Read this every session before acting. Symlinked from `CLAUDE.md` and `GEMINI.md` so Claude Code, Antigravity (Agy), and Codex CLI all see the same source.
+Core rules for every agent (Claude Code, Antigravity `agy`, Codex). `CLAUDE.md` and `GEMINI.md` are
+symlinks to this file. The render workflow itself lives in the shared skill
+`.agents/skills/make-video/` — read its `SKILL.md` before any render.
 
-## Project Intent
+## Project intent
 
-Audio-first YouTube videos (kể truyện / audiobook). The product is the **audio + background music + thumbnail**. Video visuals exist only to defeat YouTube's static-frame penalty — quality is not a goal. Speed-to-publish wins over polish.
+Audio-first YouTube videos (kể truyện / audiobook). The product is **audio + background music +
+thumbnail**. Visuals exist only to defeat YouTube's static-frame penalty. Speed-to-publish wins.
 
-## When the user invokes `/make-video <folder> [hints]`
+## Entry points
 
-Run the 4-step CLI pipeline below, end-to-end, until an mp4 + package is on disk. Report paths at the end. Don't ask permission step-by-step — only ask if something in the folder is ambiguous.
+- Render an episode (Kaggle or local): `.agents/skills/make-video/SKILL.md`
+  (Claude: `/make-video <folder> [hints]`; agy/codex: the `make-video` skill).
+- Local render with pre-rendered parallax clips: `.agents/skills/parallax-video/SKILL.md`.
+- References (load only when the step needs them): `.agents/skills/make-video/references/`
+  — `kaggle-runbook.md`, `sfx-music.md`, `description-metadata.md`, `fx-parallax.md`,
+  `pitfalls.md`, `series.yaml`, `lessons-inbox.md`.
+- Cloud architecture and setup: `docs/cloud-render-setup.md`, `docs/cloud-gpu-whisper-setup.md`.
 
-## Asset folder convention
+## Asset folder convention (short)
 
-User points at a folder containing:
+Voice `.wav` > `.m4a` > `.mp3` (never fail when `.wav` is absent) · `Image/` · `Video/` b-roll ·
+`Parallax/` DepthFlow clips · `Music/` (natural-sorted, `01-`, `02-` prefixes order it) ·
+`*_vi_qa.srt` + `*_vi_qa.txt` (provided subtitles + script) · `*_music_prompts.txt` · scene plan
+(`*_scene_anchors.md` or `.work/scene-plan.md`) · `CTA voice/` · thumbnail folder (`thumb*`) ·
+ending image (`*end*` / "Ảnh end"). No `assets/asset-index.yaml` — policy is `allow-missing-local`.
+Ambiguous intro/ending candidates → skip that image, render, report the skip.
 
-- `voice.wav` / `voice.mp3` / `voice.m4a` — the narration (required). **Prefer `.wav`** when several
-  exist (`.wav` > `.m4a` > `.mp3`): lossless + no encoder-delay so the provided SRT stays in sync.
-  Fall back to whatever is present — never fail just because `.wav` is absent.
-- `media/` — images (`.png .jpg .jpeg .webp`) and optional video clips (`.mp4 .mov`)
-- `music/` — optional background music. Point `inputs.music` at the **folder**: all tracks
-  inside play back-to-back (natural-sorted by name — prefix `01-`, `02-` to order them) then
-  loop to the end of the video.
-- An **intro thumbnail** (no-text template) and an **ending image** may sit anywhere in the
-  folder (often a subfolder like `Ảnh end video/`). Detect them and set `inputs.intro_image` /
-  `inputs.ending_image`. Intro overlays the FIRST 10s of the narration and the ending overlays
-  the LAST 10s (both no added time) — so the ending card stays flush with the voice end and a
-  spliced outro CTA card lines up with the CTA voice instead of lagging 10s behind.
-- **No** `assets/asset-index.yaml` required — we use `allow-missing-local`
+## gdrive safety (non-negotiable)
 
-### Auto-detecting intro / ending images
-Scan the folder (incl. subfolders): a filename/subfolder matching `thumb*` → intro template;
-matching `*end*` / `outro` / "ảnh end" → ending image. If absent or genuinely ambiguous
-(several equally-likely candidates), SKIP that image, render normally, and note the skip in the
-final report. Never block on it.
+The rclone mount (`/home/dung/cloud/gdrive/...`) and Drive itself are source material. Never
+`rm`/`mv`/overwrite anything there. Stage with `rclone copy` into `$HOME/.cache/videotool/<name>`,
+publish back with `rclone copy`, delete only the local stage. The only Drive writes a render makes
+are the per-episode creative/template/config files and the cleanup of its own `render_job*.json`.
 
-### Mood / atmosphere FX are OFF by default (2026-07-03)
-`/make-video` does NOT enable mood overlay or atmosphere by default and does NOT propose them.
-Render clean. Only turn them on when the user explicitly asks for FX in the hint — then read the
-story (first ~300 words of `*_vi.txt` + `*_image_prompts.txt`), pick a `mood`
-(clean/melancholy/cozy/horror/action) and, if asked for atmosphere, ONE overlay from
-`~/.local/share/videotool/overlays/`, and write `enhance.tier: full` (or per-feature) +
-`enhance.mood` + `enhance.atmosphere: true` + `inputs.particle_overlay` into job.yaml
-(`parallax` only if asked — expensive). No FX hint → do nothing, do not ask.
+## Agent roles and lessons
 
-## When assets live on gdrive (rclone mount)
-
-If the folder path is on a gdrive mount (e.g. under `/home/dung/cloud/gdrive/...`), stage it
-locally first — the mount is slow and must never be written to destructively:
-
-```bash
-SRC="<gdrive folder>"                 # the user-supplied mount path
-STAGE="$HOME/.cache/videotool/$(basename "$SRC")"
-rm -rf "$STAGE"; mkdir -p "$STAGE"
-cp -r "$SRC"/. "$STAGE"/             # assets -> fast local disk (cp -r: mount can't preserve perms)
-# ... run the standard pipeline with JOB_DIR="$STAGE" ...
-mkdir -p "$SRC/Output"               # sibling of the asset subfolders
-cp -r "$STAGE/outputs"/. "$SRC/Output"/   # publish results back to gdrive
-rm -rf "$STAGE"                      # delete LOCAL staging ONLY
-```
-
-SAFETY (non-negotiable): the only delete is `rm -rf "$STAGE"` on the local cache path. NEVER run
-`rm`/`mv`/overwrite against `$SRC` or anything under the mount. Report the `$SRC/Output/` path +
-local space reclaimed.
-
-## Standard pipeline (run all 4 steps)
-
-All commands use the project venv at `/home/dung/VIBE_CODING/video-tool/.venv/`.
-
-```bash
-cd /home/dung/VIBE_CODING/video-tool
-VT=.venv/bin/videotool
-JOB_DIR="<user-supplied folder>"
-JOB="$JOB_DIR/job.yaml"
-
-# 1. Init job.yaml skeleton. Point --music at the music FOLDER (all tracks concat+loop).
-$VT init-job "$JOB_DIR" --voice voice.wav --media media --music music
-# Then add intro/ending if detected (edit job.yaml inputs):
-#   inputs.intro_image: <path to no-text thumbnail>
-#   inputs.ending_image: <path to ending image>
-
-# 2. Force allow-missing-local + caption off (init-job defaults are wrong for our flow)
-sed -i \
-  -e 's/policy: licensed-only/policy: allow-missing-local/' \
-  -e "/captions:/,/^[^ ]/ s/mode: srt-only/mode: off/" \
-  "$JOB"
-# If "captions:" block not present after init-job, append: printf '\ncaptions:\n  mode: off\n' >> "$JOB"
-
-# 3. Auto-storyboard. Times each image to the words it illustrates (see "Image timing" below).
-#    Finds the scene plan and the narration SRT itself — no step order to get wrong.
-#    Pass --videos-dir to interleave b-roll clips across the timeline (clips keep their real
-#    duration; images share the rest). READ ITS OUTPUT: the "Timing:" line names the tier used.
-$VT storyboard auto "$JOB" --images-dir "$JOB_DIR/Image" --videos-dir "$JOB_DIR/Video"
-#    --scene-plan <file> to point at a plan kept elsewhere; --min-hold <sec> (default 9).
-
-# 4. Validate → render → package → metadata
-$VT validate "$JOB"
-$VT render "$JOB" --preset youtube-16x9   # default: long-form only, NO Shorts
-# Tier-full overlay jobs: ensure outputs/captions.srt exists, then add --enhance full.
-$VT package "$JOB"
-$VT metadata "$JOB"   # publisher tags + renames the mp4 to the episode title (see below)
-```
-
-### Image timing (2026-09-07)
-Three tiers, best first, chosen automatically. All three end in one solver, so the minimum hold
-and "totals exactly the narration" hold everywhere. Dropping a tier warns and never fails.
-
-| Tier | Needs | Result |
-|---|---|---|
-| `anchor` | scene plan's `source_anchor` + narration SRT | every image sits on its own words |
-| `chapter` | scene plan's `chapter` column + SRT | error 0 at each chapter marker |
-| `even` | nothing | images share the episode equally (old behaviour) |
-
-**The scene plan** is written by `visual-prompt`: `<stem>_scene_anchors.md` beside the prompts
-(visible, travels with every copy), or the legacy `.work/scene-plan.md`. Columns are read BY
-NAME, so a trimmed or reordered table still works. Images join plan rows **by the scene number
-in the filename** (`____SCENE_214_____212.jpeg` → 214) — never by list position, so a failed
-image leaves a gap instead of shifting everything after it.
-
-Minimum hold 9s (`--min-hold`); no maximum, so an image can hold minutes where the story does
-not change scene. The SRT is located by the tool (`outputs/captions.srt`, else `*_vi_qa.srt`);
-`captions.youtube.srt` is never used — it is CTA-shifted. `job.yaml` records the tier under
-`timing:`.
-
-### Audio-story channel default (e.g. BÌNH THIÊN SÁCH)
-Seed `enhance:{visualizer:true,subtitles:true,subtitle_color:yellow}` (progress bar removed from all
-jobs; `subtitle_color:yellow` = yellow fill + black outline, audio-story only, for legibility);
-`inputs.script`=`*_vi.txt`, `inputs.description_template`=`_DESCRIPTION_TEMPLATE.txt`
-(needs `{{CHAPTERS}}`/`{{RECAP_PREV}}`/`{{SUMMARY}}`).
-Author `project.recap_previous` (prev tập) + `project.description` (this tập) from vi.txt. CTA: if a
-`CTA voice/` folder exists, set `inputs.intro_cta`/`outro_cta` + `inputs.intro_cta_image`/`outro_cta_image`
-(prefer animated `Intro CTA.mp4`/`Outro CTA.mp4` in that folder if present — tool loops/trims clip to
-voice length; else fall back to thumbnail/ending still) — tool splices at start/end, auto-shifts captions+chapters (adds
-00:00 "Giới thiệu"). **Subtitles come from the user-provided SRT, NOT whisper** (2026-07-03): copy the
-supplied `*_vi_qa.srt` → `"$JOB_DIR/outputs/captions.srt"`, then `$VT chapters-from-srt "$JOB"`
-(parses "Chương N:" markers → `chapters.json`; skips silently if <3 markers). `transcribe` is only for
-when NO SRT is provided / cloud-GPU whisper. Then `render --preset youtube-16x9`
-(per-feature enhance drives overlays; NOT `--enhance full` — adds particles) → **`$VT sfx "$JOB"`**
-(mixes SFX cues onto the mp4, remux `-c:v copy`) → `package` (renders `description.txt`) →
-**`$VT metadata "$JOB"`**. Paste `description.txt` into the YouTube description for native chapters.
-
-**`metadata` = publisher tags + publish filename** (last step, after `package`). It renames
-`youtube-16x9.mp4` to the episode title and writes the fields Windows Explorer shows, so YouTube
-prefills the title from the filename on upload. Title/tags/genre are NOT invented: `project.title`
-is the exact line from the series title list, and Tags + Genre are read back out of the rendered
-`description.txt` (`==== TAGS` block, `• Thể loại:` line). Author `project.metadata` in job.yaml
-from memory `series-channel-ownership` — it is constant for a whole series, and for a NEW series
-you must ask the user at tập 1 which channel/URL owns it:
-
-```yaml
-project:
-  title: "<full title from the series title list — becomes the mp4 filename>"
-  metadata:
-    channel: "Chính Dịch Đường"          # Directors/Producers/Publisher/Content provider/Encoded by
-    channel_url: "https://www.youtube.com/@ChinhDichDuongVN"   # Author URL + Promotion URL
-    original_author: "Vô Tội"            # Writers — we translate it, we did not write it.
-                                         # Vietnamese only: no Chinese anywhere in the
-                                         # description OR these tags (user decision 2026-08-25).
-    copyright: "Bản dịch & sản xuất audio: Chính Dịch Đường. Nguyên tác thuộc về tác giả Vô Tội."
-    subtitle: "Chương 421-435"
-    release_date: "2026-08-24"           # today when unset
-```
-
-ĐẠO SĨ's title list separates the hook with `|`; write it as ` - ` in `project.title` so the tag
-and the filename read the same (Windows rejects `|` in filenames). *(User decision 2026-08-24.)*
-
-Needs ExifTool (`~/.local/share/videotool/exiftool/exiftool`, or on PATH) — ffmpeg cannot write the
-Windows `Xtra` box the Origin fields live in. The cloud runner installs it into the same user dir
-(the TPU box has no sudo) and treats the whole pass as best-effort: a finished render is never lost
-over metadata, it just publishes untagged under the preset name.
-
-**Music-schedule + SFX cues are authored by the LLM into job.yaml** (tool just renders them):
-- **`audio.music_schedule`** — read `*_vi_qa.txt` + `*_music_prompts.txt` (N mood blocks, **block i ↔
-  track i** natural-sorted in `Music/`) + chapter seconds from the SRT markers. Map each track to the
-  chapter range whose mood fits (calm/scenery → gentle track, action/climax → faster track). Write cues
-  `{track, start, end, gain_db?}` narration-aligned covering the whole voice. Unset → concat+loop.
-- **`enhance.sfx.cues`** (default ON, ~12–15 cue/45min, auto-burn, NO montage) — scan
-  `outputs/captions.srt` for action keywords, **drop metaphorical homographs** (grep context first),
-  **pin by char-interpolation inside the cue** (`start + frac*(end-start)`, NOT segment-start, NOT
-  re-transcribe). Copy chosen files from `~/.local/share/videotool/sfx/<pack>/` (kiếm hiệp→`binh-thien`,
-  ma hài→`dao-si`) into `<job>/sfx/` and reference them job-relative. Point-SFX −8..−15 dB under voice,
-  NOT ducked; cluster at climax, ~0 at exposition, ≥30–60s between clusters, ≤3/10s, skip first 30s /
-  last 25s (CTA regions). Beds/ambient not built yet. See memories `sfx-insertion-workflow` /
-  `sfx-library-location`.
-
-Render Shorts ONLY when the user asks (hint contains "shorts"/"9x16"/"--all"): add
-`{preset: shorts-9x16}` to `outputs:` in job.yaml, then `$VT render "$JOB" --all`.
-
-Outputs land in `$JOB_DIR/outputs/`:
-- `<episode title>.mp4` — renamed from `youtube-16x9.mp4` by `metadata` (and `shorts-9x16.mp4`,
-  never renamed, only if Shorts was requested)
-- `thumbnail-1280x720.jpg`, `thumbnail-candidate-0[1-5].jpg`
-- `description.txt`, `license-report.md`, `quality-report.json`, `package-manifest.json`
-- `captions.srt` + `chapters.json` (from the provided SRT via `chapters-from-srt`). `captions.srt` is
-  RAW (narration-aligned, the burn baseline). When an intro CTA is spliced, `package` also writes
-  `captions.youtube.srt` (shifted by the CTA offset) — **upload THAT one as the YouTube sidecar**,
-  not `captions.srt` (raw lags the video by the CTA duration).
-
-## Known pitfalls (MUST handle)
-
-1. **`init-job` writes `assets.policy: licensed-only`** (`src/videotool/core/job_spec.py:160`). Validation fails without an asset index. ALWAYS rewrite to `allow-missing-local`.
-2. **`storyboard auto` needs `--videos-dir` to include b-roll clips.** Without it, only images are used. WITH it, clips are interleaved with images by story order (spread across the whole timeline, never bunched) and keep their real duration — pass `--videos-dir "$JOB_DIR/Video"` whenever a Video folder exists. Never drop clips.
-3. **`captions.mode: srt-only` is the init default** — set `mode: off` for light jobs (YouTube auto-CC suffices). For audio-story channel jobs, subtitles come via `enhance.subtitles` + the **user-provided SRT** copied to `outputs/captions.srt` (whisper `transcribe` is NOT in the default flow anymore — 2026-07-03). `enhance.subtitles` forces caption burn regardless of `captions.mode`.
-4. **Image timing degrades SILENTLY, by design.** Missing scene plan or SRT → WARNING + even split; the render still succeeds, just mistimed. **Read the `Timing:` line** `storyboard auto` prints, or `timing.source` in job.yaml. Cloud runs hard-stop when the folder HAS a plan but timing still came out `even` — that combination is a bug, not a missing input (`Colab/cloud_director.py`). *(2026-09-07.)*
-5. **Music loop preparation** (`src/videotool/core/services.py:227`) only fires when `inputs.music` is set. Always include the music path if there's a music file in the folder.
-6. **Render path branches at 40 scenes** (`render.max_inline_scenes`). >40 → segmented path. Light tier uses `-c:v copy` at mux; full tier re-encodes once for overlays. Don't force inline. On the segmented path scene clips render **in parallel** (one per core, cap 8; override with `VIDEOTOOL_SCENE_WORKERS`) and the atmosphere screen-blend is **baked per scene**, not at the mux — that blend used to pin ~90% of wall time to one core. *(2026-07-23.)*
-7. **Render's mux step USED to crash `UnicodeDecodeError` COSMETICALLY when job/project metadata contained Vietnamese** (ffmpeg echoes `-metadata title=…`; a split multi-byte UTF-8 char on a stdout read boundary threw in strict-UTF-8 mode). FIXED 2026-07-06 (`package` `947cc00`, `render/executor.py`, `render/sfx_mix.py`) and extended 2026-07-13 to EVERY subprocess capture in the pipeline — `render/cta_compose.py`, `render/music_loop.py`, `core/media_probe.py`, `ai/whisper_cpp_adapter.py`, `ai/silence.py` all now pass `text=True, errors="replace"` so no ffmpeg/ffprobe/whisper output can crash the run on Vietnamese (or Latin-1 ID3) bytes. Residual fallback if it ever recurs: the mp4 is already fully written BEFORE the Python crash (ffmpeg keeps writing to disk), so verify the artifact (`ffprobe` shows full duration + `ffmpeg -v error -i out.mp4 -f null -` decodes clean) and proceed; do NOT re-render. Only treat a real failure as a real failure.
+- **Render-only agents (agy, codex)** run renders. They must not edit code, tests, notebooks, the
+  skill, references, `AGENTS.md` or configs; must not run git commands that change state,
+  `pip install`, or `kaggle kernels push`. When something in code looks wrong, stop and tell the user.
+- **New lessons go into the repo, never into a CLI's private memory.** Render-only agents append to
+  `references/lessons-inbox.md` (or run `videotool agent lesson` once it exists) and tell the user.
+  Claude verifies an inbox entry against code/logs before moving it into a reference, when the user
+  asks. Every rule in a reference names its source (memory slug, episode log, or commit).
 
 ## Confirmed project decisions (do NOT silently reverse)
 
-- **Tier light: no waveform / no self-made subtitles.** Zoompan defeats static detection without re-encode; YouTube auto-CC suffices. Stays the default for generic light jobs. *(Decided 2026-05-28; tier-scoped 2026-05-31.)*
-- **Audio-story channel OVERRIDES the two above: showwaves + subtitles ON, progress bar OFF**; **music bed default −30 dB**. Subtitles + chapters now come from the **user-provided SRT** (see 2026-07-03 below), not whisper; no rendered progress bar (Sweezy-style is viewer-side). *(Decided 2026-05-31; SRT-sourced 2026-07-03.)*
-- **`/make-video` defaults overhaul** *(Decided 2026-07-03)*:
-  - **Provided-SRT, no whisper in default flow.** Copy the user's SRT → `outputs/captions.srt`; `chapters-from-srt` derives `chapters.json` from "Chương N:" markers. `transcribe`/whisper stays only for the no-SRT / cloud-GPU path.
-  - **Mood/atmosphere OFF by default** and NOT proposed — only on explicit FX hint.
-  - **WAV-first voice** (`.wav` > `.m4a` > `.mp3`) for quality + SRT sync; fall back, never fail.
-  - **Yellow subtitles for audio-story only** via `enhance.subtitle_color: yellow` (fill `&H0000FFFF` + black outline). Default `white` keeps other jobs byte-identical. Legibility → retention, not an algorithm reading pixel colour.
-  - **Audio AAC 256k** (was 192k), loudnorm target unchanged at −14 LUFS.
-  - **Music-schedule + default SFX** (Plan 2): `audio.music_schedule` places a track per story-mood
-    span (unset → concat+loop); `enhance.sfx` mixes one-shot SFX onto the mp4 post-process
-    (`$VT sfx`, `-c:v copy`, NOT ducked, `amix normalize=0`+limiter), default ON ~12–15 cue/45min,
-    auto-burn no montage. Cue times narration-aligned; tool shifts by the intro-CTA offset. SFX
-    beds/ambient deferred.
-- **Tier full opts into overlays.** `--enhance full` burns existing `outputs/captions.srt`, adds bundled particle/progress/optional waveform, and re-encodes once.
-- **Motion amplitude = 0.30, pan zoom = 1.22** (`src/videotool/render/video_filters.py` `ZOOM_AMPLITUDE` / `PAN_ZOOM`). Bumped up from 0.12 because long-duration images need visible per-second motion. Don't lower without checking with user. *(Decided 2026-05-28.)*
-- **No auto Shorts.** Default render is `youtube-16x9` only; add `shorts-9x16` solely when the
-  user asks. `init-job` / `storyboard plan` seed a single long-form preset. *(Decided 2026-05-29.)*
+Detail and mechanics live in the linked reference. Ask the user before changing any of these.
+
+- **Tier light: no waveform, no self-made subtitles** for generic light jobs; zoompan defeats static
+  detection without a re-encode. *(2026-05-28; tier-scoped 2026-05-31.)*
+- **Audio-story channels override that: showwaves + burned subtitles ON, progress bar OFF, music bed
+  −30 dB.** *(2026-05-31.)*
+- **Subtitles and chapters come from the user-provided SRT**, copied to `outputs/captions.srt`;
+  `chapters-from-srt` derives chapters. Whisper `transcribe` only when no SRT exists.
+  *(2026-07-03.)* → description-metadata.md
+- **Mood / atmosphere FX are OFF by default and never proposed**; only on an explicit FX hint, and the
+  overlay choice waits for the user's confirmation. *(2026-07-03; overlay gate 2026-06-21.)* → fx-parallax.md
+- **WAV-first voice** (`.wav` > `.m4a` > `.mp3`). *(2026-07-03.)*
+- **Yellow subtitles (`enhance.subtitle_color: yellow`) for audio-story only**; default white keeps other
+  jobs byte-identical. *(2026-07-03.)*
+- **Audio AAC 256k, loudnorm −14 LUFS.** *(2026-07-03.)*
+- **Music schedule + default SFX**: `audio.music_schedule` places a track per story-mood span (unset →
+  concat + loop); `enhance.sfx` mixes one-shot SFX after render (`videotool sfx`, `-c:v copy`, not
+  ducked, `amix normalize=0` + limiter), default ON, auto-burn, no montage. Beds deferred.
+  *(2026-07-03.)* → sfx-music.md
+- **Tier full opts into overlays** (`--enhance full`: burn captions + bundled particles/progress/
+  waveform, one re-encode). Audio-story jobs use per-feature `enhance`, not `--enhance full`.
+- **Motion amplitude 0.30, pan zoom 1.22** (`render/video_filters.py`). Don't lower without asking.
+  *(2026-05-28.)*
+- **No auto Shorts.** Only `youtube-16x9` unless the user asks. *(2026-05-29.)*
 - **Every published mp4 carries publisher metadata and is named after the episode title**
-  (`$VT metadata`, last step). Filename = the title from the series title list, because YouTube
-  prefills the upload title from it — that is the part with a real, observable effect. The
-  in-container tags (Title/Tags/Genre/Origin credits) cost ~4s and no quality, but no public
-  YouTube documentation says they affect ranking: they are a cheap bet plus a tidy library, NOT a
-  substitute for the title/description/tags typed in Studio. A series' channel, URL, original
-  author and credit line are fixed from tập 1 — ask the user for a NEW series, never guess.
-  Applies from Bình Thiên Chap 41 / ĐẠO SĨ Chap 30 onward; already-published episodes are left
-  alone. *(Decided 2026-08-24.)*
-- **No CapCut / external editor.** Tool is self-sufficient via FFmpeg.
-- **Caption mode default for our flow = `off`** (not `srt-only`).
-- **Intro AND ending images both OVERLAY the narration (no added time)** — intro the first 10s,
-  ending the LAST 10s. Keeps the ending card flush with the voice end so a spliced outro CTA
-  card stays in sync with its voice (was "ending extends +10s", which desynced the outro CTA by
-  10s and got -shortest-clipped). *(Decided 2026-06-13.)*
-- **Images are timed to the narration, per image.** Measured against the QA SRT of real jobs:
-  the plain even split left ĐẠO SĨ chapter openings up to 5,9 minutes early (BÌNH THIÊN ≤105s).
-  `source_anchor` — a verbatim narration excerpt the scene plan already carried — located
-  715/716 scenes across 4 episodes, in order, no duplicates, so per-image timing was available
-  for free. Measured after: median offset from the anchor 0,00s, worst 13s. Deliberately no
-  MAXIMUM hold: an image may sit for minutes where the story does not change scene, which is
-  the truth and still moves under Ken Burns. Injecting `=== CHƯƠNG N ===` into the prompt file
-  was REJECTED on evidence — `make-image` splits on `--- SCENE ---` first, so the marker would
-  add one junk image and pollute ~14 prompts per episode. This is NOT a retention lever; the
-  win is the frame being right where a listener actually looks. *(Decided 2026-09-07.)*
-- **B-roll clips interleave with images by story order** via `storyboard auto --videos-dir`
-  (spread across the whole timeline, never bunched; clips keep real duration). Never drop clips
-  for stills — every chapter has b-roll. *(Decided 2026-06-13.)*
-- **2.5D parallax = opt-in via `enhance.parallax: true`** (independent of tier; tier=full does
-  NOT enable it). Stills become depth-parallax clips (DepthAnything V2-Small + numpy inverse-warp,
-  CPU/offline) cached under `<job>/.videotool/parallax-cache`. A scene whose depth fails falls
-  back to Ken Burns. Needs the `parallax` extra; on a no-GPU box install the **CPU torch build**
-  (`pip install torch --index-url https://download.pytorch.org/whl/cpu` then `pip install -e .[parallax]`)
-  and the model loads `local_files_only` to avoid an ~80s HF-Hub stall (first run downloads once).
-  DepthFlow rejected for local (pyaudio needs sudo); only in the Colab GPU versions (`/Colab`).
-  *(Decided 2026-06-15.)*
-- **Progress bar REMOVED from every job.** The `enhance.progress_bar` key still validates but is
-  a no-op (renders nothing). Sweezy-style progress is viewer-side. *(Decided 2026-06-15.)*
-- **Full-tier "Group A" mood FX (filter-only, free, no assets):** `enhance.mood` ∈
-  `clean/melancholy/cozy/horror/action` expands to vignette/grain/glow/flicker/color-grade.
-  Mood is INDEPENDENT of tier (tier=full alone does NOT enable it); per-effect fields override the
-  mood. Effects ride the single full-tier re-encode (cheap). When `/make-video`, suggest a mood
-  that fits the video and write it into `job.yaml`. *(Decided 2026-06-15.)*
-- **Atmospheric overlay = pick from local CC0 library.** `enhance.atmosphere: true` blends
-  `inputs.particle_overlay` (rain/snow/fire/smoke/etc. loop, black bg) with `screen`. A local CC0
-  library (ForFilmCreation + FX Elements, all converted to 4K H264 yuv420p, black-bg or
-  alpha-flattened-on-black) lives at `~/.local/share/videotool/overlays/` (durable XDG data dir,
-  NOT `~/.cache` — moved there 2026-06-21 so a cache wipe can't delete it), files named
-  `{kind}-{src}-{id}.mp4` (`rain-* snow-* fire-* smoke-* particles-* dust-* cosmos-*` CC0 +
-  generated `fireflies-gen-* ember-gen-* dust-gen-* qi-gen-*`). Generated overlays come from
-  `scripts/gen_overlay.py --preset <fireflies|ember|dust>` (numpy, local, instant) and
-  `Colab/qi_wisps_overlay_colab.py` (GLSL on Colab/Kaggle GPU → download `qi-gen-01.mp4`).
-  When the user wants full FX, `ls` that folder, **suggest** the overlay that fits the
-  video (read the story/scene mood first) and **WAIT for the user to confirm which overlay via a
-  one-line proposal before rendering full**, then set `inputs.particle_overlay` to it
-  (melancholy→`rain-*`, winter/cozy→`snow-*`, action/horror→`fire-*`/`smoke-*`,
-  rural-night/summer→`fireflies-gen-*`, talisman-burning→`ember-gen-*`,
-  mystical/qi/dreamy→`qi-gen-*`/`smoke-*`/`particles-*`/`cosmos-*`,
-  old-film/abandoned-interior→`dust-*`/`dust-gen-*`) + `enhance.atmosphere: true`.
-  One overlay slot per video; `particles` wins if both on. Masters stay on gdrive
-  (`KHÁC/HIỆU ỨNG VIDEO/`); nothing copyrighted lives in the repo. Re-stage the library with
-  `rclone` to the durable folder if it is ever cleared. Screen-blends (atmosphere + glow) run in
-  `gbrp` (RGB) — blending in yuv420p tints the whole frame magenta; do NOT revert.
-  *(Library + blend fix 2026-06-18; moved to durable dir + generated overlays 2026-06-21.)*
-- **Colab DepthFlow 2.5D = separate `/parallax-video` command (NOT `enhance.parallax`).** GPU-offload
-  path: Colab `Colab/v4_depthflow_clips_colab.py` renders one loopable 1080p clip per still →
-  `Parallax/<image-stem>.mp4` (manual download + upload beside the asset folder). `/parallax-video`
-  runs the same pipeline as `/make-video` plus `videotool parallax-link "$JOB" --clips-dir Parallax`,
-  which swaps each image scene for its matching clip at the data layer (job.yaml); a still with no
-  matching clip stays Ken Burns. Render needs no torch — it just loop+trims the clip. Distinct from
-  the local-numpy `enhance.parallax` (2026-06-15), which stays as-is; `/make-video` untouched.
-  *(Added 2026-06-18.)*
-- **Full cloud render = separate parallel system (`Colab/cloud_render_runner.py`), NOT
-  `/make-video`.** Reverses "render stays local" (2026-06): the whole pipeline can run on a free
-  Colab/Kaggle T4 — `Colab/cloud_director.py` LLM-authors job.yaml, NVENC renders with resumable
-  Drive checkpoints, results publish to the source folder's `Output/`. Zero local CPU. The local
-  flow is byte-unchanged; the only shared-code touch is the additive `h264_nvenc-capped` profile.
-  Cloud job.yaml sets `render.max_inline_scenes: 1` to force the resumable segmented path (schema
-  forbids 0). Resume = rerun the cell (restores pinned job.yaml + ffprobe-verified clips, no LLM
-  call). **Claude Code CLI is the director**: Claude reads the folder + authors a `creative.yaml`
-  (music_schedule, SFX cues, mood, atmosphere overlay, description) locally — same intelligent work
-  as local `/make-video`, incl. confirming the overlay with the user — then the render box just runs
-  the deterministic pre-steps + `apply_creative` + NVENC render. **No LLM on the render box.** The
-  on-box LLM (Kaggle Model Proxy `google/gemini-3.5-flash`; probed 2026-07-11 as the only slug that
-  worked) survives only as an `autonomous=True` fallback for notebook-without-Claude. **Kaggle =
-  primary** (4 vCPU > Colab 2; T4×2 gives NO render speedup — 1 ffmpeg uses 1 GPU; filters are the
-  CPU bottleneck), **Colab = fallback on quota**. See `docs/cloud-render-setup.md`. Pain driving
-  this = machine occupation/heat, not speed. *(Decided 2026-07-11.)*
-
-## Input format the user gives
-
-Bare minimum: a folder path. Optional hints in free text: title, which preset to render (`youtube-16x9` / `shorts-9x16` / `--all`), specific music filename, language. Ask ONE concise question only if essential and unguessable.
+  (`videotool metadata`, last step). The filename matters (YouTube prefills the title); in-file tags
+  are a cheap bet, not a ranking lever. A series' channel/URL/author/credit is fixed from tập 1 —
+  ask for a new series. From BT Chap 41 / ĐS Chap 30; published episodes untouched. *(2026-08-24.)*
+  → description-metadata.md, series.yaml
+- **ĐẠO SĨ title `|` is written as ` - `** in `project.title`. *(2026-08-24.)*
+- **No Chinese characters** in descriptions or mp4 tags — Vietnamese names only. *(2026-08-25.)*
+- **No CapCut / external editor**; FFmpeg only.
+- **Caption mode default `off`** (not `srt-only`); `enhance.subtitles` forces the burn anyway.
+- **Intro and ending images overlay the narration** (first 10s / last 10s, no added time) so the
+  outro CTA stays in sync. *(2026-06-13.)*
+- **Images are timed to the narration per image** (tiers anchor → chapter → even, fail-soft), no
+  maximum hold; injecting `=== CHƯƠNG N ===` into prompt files was rejected on evidence. Not a
+  retention lever — the frame is right where the listener looks. *(2026-09-07.)* → pitfalls.md
+- **B-roll clips interleave with images by story order** (`storyboard auto --videos-dir`), keep their
+  real duration, never dropped. *(2026-06-13.)*
+- **2.5D parallax, local numpy path = opt-in `enhance.parallax: true`** (independent of tier;
+  DepthAnything V2-Small, CPU torch build, `local_files_only`; DepthFlow rejected locally — pyaudio
+  needs sudo). *(2026-06-15.)* → fx-parallax.md
+- **Pre-rendered DepthFlow clips = `/parallax-video` + `parallax-link`**, separate from
+  `enhance.parallax`; a still without a clip stays Ken Burns. *(2026-06-18.)*
+- **Progress bar removed from every job** (`enhance.progress_bar` validates but renders nothing).
+  *(2026-06-15.)*
+- **Group-A mood FX** (`enhance.mood` clean/melancholy/cozy/horror/action → vignette/grain/glow/
+  flicker/grade) are independent of tier; per-effect fields override the mood. *(2026-06-15.)*
+- **Atmosphere overlay = one clip from the local CC0/generated library**
+  `~/.local/share/videotool/overlays/`, screen-blended in `gbrp` (never yuv420p — magenta tint).
+  Masters stay on gdrive `KHÁC/HIỆU ỨNG VIDEO/`. *(2026-06-18; durable dir 2026-06-21.)* → fx-parallax.md
+- **Full cloud render on Kaggle** (`Colab/cloud_render_runner.py`): the agent authors `creative.yaml`
+  locally, the box runs no LLM (the on-box LLM is only an `autonomous=True` fallback), NVENC or
+  x264 with resumable Drive checkpoints, results publish to the source folder. Kaggle primary,
+  Colab fallback. *(2026-07-11.)* → kaggle-runbook.md
+- **Local and cloud job preparation merge into one package step**, driven by the same
+  `creative.yaml`. Reverses the 2026-07-11 "local flow byte-unchanged, cloud is a parallel system":
+  the cloud copy silently lost the intro/ending cards from ĐS25 to ĐS38 while local was right.
+  *(2026-09-19; implementation in progress.)*
+- **One knowledge source in the repo** (this file + `.agents/skills/`); per-CLI memories only point
+  here. Render-only agents work under the guard above. *(2026-09-19.)*
 
 ## Verification commands
 
-- `.venv/bin/python -m pytest -q` — full test suite, must be 66+ passing
-- `.venv/bin/videotool doctor` — ffmpeg + env check
-- `ffprobe -v error -show_entries stream=codec_name,width,height -of csv=p=0 <out.mp4>` — confirm h264 + aac + correct resolution
+- `.venv/bin/python -m pytest -q` — full suite (283+ must pass)
+- `.venv/bin/videotool doctor` — ffmpeg + environment check
+- `ffprobe -v error -show_entries stream=codec_name,width,height -of csv=p=0 <out.mp4>` — h264 + aac + 1920×1080
 
 ## Tech notes
 
-- Python 3.12 venv at `.venv/`. Activate via the explicit binary paths above.
-- AI extras (`faster-whisper` + deps) ARE installed; `base` model offline at `~/.cache/videotool/models/faster-whisper-base`. Used by `transcribe` for subtitles + chapter timing. `transcribe` also takes `--device cuda --compute-type float16 --model large-v3` to run on cloud GPU (Kaggle/Colab) — see `docs/cloud-gpu-whisper-setup.md` + `Colab/{kaggle,colab}_runner.ipynb`.
-- FFmpeg is a hard dependency (`apt install ffmpeg`). Encoder default `libx264-balanced`.
-- Key source files:
-  - `src/videotool/core/job_spec.py` — pydantic schema
-  - `src/videotool/core/storyboard.py` — autogen logic
-  - `src/videotool/core/services.py` — orchestrates init/validate/render/package
-  - `src/videotool/render/video_filters.py` — motion constants live here
-  - `src/videotool/render/segmented.py` — long-video resumable render
-  - `src/videotool/cli/main.py` — Typer CLI surface
+- Python 3.12 venv at `.venv/`; call binaries by path (`.venv/bin/videotool`). FFmpeg is required;
+  default encoder `libx264-balanced` (`*-capped` / `*-capped-2500k` variants cap the bitrate).
+- `faster-whisper` (`ai` extra) is installed; offline `base` model at
+  `~/.cache/videotool/models/faster-whisper-base` (pass the PATH to `--model`). Cloud GPU whisper:
+  `transcribe --device cuda --compute-type float16 --model large-v3`.
+- Render branches at 40 scenes (`render.max_inline_scenes`): above it the segmented path renders
+  scene clips in parallel (one per core, cap 8, `VIDEOTOOL_SCENE_WORKERS`) and bakes the overlay per scene.
+- Every subprocess capture uses `errors="replace"` — Vietnamese bytes cannot crash a run (2026-07-13).
+- The Google CLI is Antigravity (`agy`); Gemini CLI is discontinued. Headless `agy -p` runs in an
+  empty default project and loads NO workspace skills — pass `--project /home/dung/VIBE_CODING/video-tool`
+  (verified 2026-09-19 with `agy -p "/skills"`).
+- Key files: `src/videotool/core/{job_spec,storyboard,services}.py`, `render/{video_filters,segmented,
+  executor,sfx_mix}.py`, `cli/main.py`; cloud: `Colab/{cloud_director,cloud_render_runner,videotool_cloud}.py`
+  and the notebooks `Colab/videotool-render{,-tpu}.ipynb`.
 
 ## When to update this file
 
-- CLI command names or args change → update "Standard pipeline".
-- New pitfall discovered while running real jobs → add to "Known pitfalls".
-- A user decision changes (with date) → update "Confirmed project decisions".
-- Don't grow this past ~150 lines. Detail belongs in `docs/`.
+- A user decision changes → update its line here (with the date) and the owning reference.
+- CLI command names/arguments change → update `make-video/SKILL.md`.
+- Keep this file ≤150 lines; detail belongs in the skill references or `docs/`.

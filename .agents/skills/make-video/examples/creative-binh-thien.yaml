@@ -1,0 +1,96 @@
+# Bình Thiên Sách — Tập 54 (chương 646-660), voice 8650,76s = 2h24m11 (SRT 1247 cue, WAV 24kHz mono)
+# Vượt sông băng + bình nguyên Lan Chi vào đất phong Tế Phong; thành Nham Dương trên đồi đá đen;
+# Hạ Ba Dực (Biên Bức Công Tử) đã ngồi sẵn trong thành; canh cược ở bãi điểm binh đêm lửa trại:
+# 6 Thần Vương Tê + 6 Kim Sơn Tượng, Tổ Xà vượt tường thành, Lâm Ý tay không đọ voi, Tử Mẫu kiếm
+# đánh lén, Hạ Ba Tư ngân cầu; Tế Phong Hồng Tề "quay giáo" (nỏ công thành + chân nguyên trọng khải
+# + khinh khí cầu thả lưới), giao binh quyền, bàn về hỏa khí vs xe nước.
+# SRT đánh số chương thật 646-660, 15/15 tên khớp qa.txt -> không renumber. Tên chương giữ đúng
+# qa.txt (tập này không có dấu chấm cuối). Không có scene plan -> timing `even` như BT47-53.
+# Overlay ember-gen-01 (tia lửa cam ~140 hạt/frame, maxRGB ~150/75/28, YAVG 16,1 = nhẹ): khớp
+# thao trường đêm rực lửa trại (652-658 là lõi tập) + mo-típ hỏa khí của tộc Hạ Ba xuyên suốt;
+# đổi hẳn khỏi 2 tập tuyết liền trước (snow-ffc-04 t52, snow-ffc-02 t53). Lấy từ kho có sẵn.
+# TPU (user chỉ định): 255 scene ước ~55-75ph render như BT53.
+
+project:
+  title: "Bình Thiên Sách Tập 54: Tay Không Đấm Vỡ Thần Tượng!"
+  description: |-
+    Vượt qua những dòng sông băng xanh đen trên nóc nhà Đảng Hạng, Lâm Ý theo chân Tế Phong Anh Sơn tiến thẳng tới thành Nham Dương — nơi vị tam thúc mặt hiền như thương nhân đang tiếp đón một vị khách còn nguy hiểm hơn cả Thiết Sách quân. Giữa bãi điểm binh lạnh giá dưới ánh lửa trại, niềm kiêu hãnh của tộc Hạ Ba lần lượt bước ra: những con cự thú bọc giáp mà cả vương tộc Đảng Hạng cũng phải kiêng dè. Nhưng đêm ấy, thứ đáng sợ nhất trong tòa thành trên đồi đá đen lại không nằm ở bãi điểm binh.
+  recap_previous: |-
+    Trên sườn núi cao nguyên Đảng Hạng, Lâm Ý đặt ra một canh cược khiến chính đội quân ba ngàn người đang vây quanh hắn phải lặng người: một mình hắn tiếp nhận toàn bộ thủ đoạn của họ, và nếu không ai làm gì được hắn, tất cả phải đầu hàng. Biển lửa hỏa khí bùng lên từ canh cược ấy mới chỉ là khởi đầu — giữa lòng động Hồng Diêm, bức màn chính trị của tám vương tộc, thế lực hỏa khí Hạ Ba thị và cả một kẻ bán đứng quân tình ngay trong Nam triều lần lượt hé lộ. Trong bóng tối những xưởng muối, Thiết Sách quân lần đầu khoác lên mình bộ quân giới trắng tuyết, sẵn sàng cùng những người bạn mới bước vào sâu trong lãnh thổ Đảng Hạng.
+  chapters:
+    - {start: 0.0,     title: "Chương 646: Đoạt linh"}
+    - {start: 739.18,  title: "Chương 647: Lời nói thật"}
+    - {start: 1237.86, title: "Chương 648: Binh lâm thành hạ"}
+    - {start: 1794.46, title: "Chương 649: Uy hiếp"}
+    - {start: 2349.14, title: "Chương 650: Xem thường"}
+    - {start: 2882.14, title: "Chương 651: Cuồng vọng"}
+    - {start: 3381.04, title: "Chương 652: Trọng kỵ"}
+    - {start: 3956.16, title: "Chương 653: Tồi khô lạp hủ"}
+    - {start: 4533.48, title: "Chương 654: Đọ sức với voi"}
+    - {start: 5110.04, title: "Chương 655: Ám toán"}
+    - {start: 5646.84, title: "Chương 656: Nanh vuốt"}
+    - {start: 6241.34, title: "Chương 657: Quay giáo"}
+    - {start: 6756.94, title: "Chương 658: Thành ý"}
+    - {start: 7324.40, title: "Chương 659: Binh quyền"}
+    - {start: 7843.82, title: "Chương 660: Đối lập bẩm sinh"}
+  metadata:
+    channel: "Chính Dịch Đường"
+    channel_url: "https://www.youtube.com/@ChinhDichDuongVN"
+    original_author: "Vô Tội"
+    copyright: "Bản dịch & sản xuất audio: Chính Dịch Đường. Nguyên tác thuộc về tác giả Vô Tội."
+    subtitle: "Chương 646-660"
+    release_date: "2026-09-15"
+
+render:
+  # 2h24m: cap 2500k -> xấu nhất (2500+258)kbps × ~8674s / 8 ≈ 2,99 GB < trần user 4,5 GB
+  # (BT53 cùng độ dài ra thật 2,98 GB).
+  bitrate_cap: "2500k"
+
+inputs:
+  intro_image: "Ảnh bìa Thumbnail-Intro/54.jpg"
+  ending_image: "Ảnh end video/binh-thien-sach-ending-youtube.jpg"
+  intro_cta: "CTA voice/Intro CTA - with voice.mp4"
+  outro_cta: "CTA voice/Outro CTA - with voice.mp4"
+
+audio:
+  # Cùng bộ 4 track với tập 53 (không có *_music_prompts.txt): map theo cung bậc từng cụm chương.
+  # 10 span phủ liền 0 -> 8650,76s (02 Ancient Peak ×4 kỳ vĩ/hành trình, 04 Shadows ×2 trận cự thú,
+  # 03 Stone Vault ×2 mưu mô trong thành, 01 Pine ×2 êm).
+  music_schedule:
+    - {track: "02_Beneath_the_Ancient_Peak",      start: 0.0,      end: 739.18}   # 646 vượt sông băng, bình nguyên Lan Chi
+    - {track: "01_Beneath_the_Pine",              start: 739.18,   end: 1237.86}  # 647 trò chuyện trên đường, mùa xuân
+    - {track: "02_Beneath_the_Ancient_Peak",      start: 1237.86,  end: 1794.46}  # 648 hoang nguyên đóng băng, thành trên đồi đá đen
+    - {track: "03_The_Stone_Vault_s_Breath",      start: 1794.46,  end: 3381.04}  # 649-651 cung điện đêm, Hạ Ba Dực, khẩu chiến
+    - {track: "04_Shadows_at_the_Mountain_Gate",  start: 3381.04,  end: 4533.48}  # 652-653 trọng kỵ cự thú, Tổ Xà vượt thành
+    - {track: "02_Beneath_the_Ancient_Peak",      start: 4533.48,  end: 5110.04}  # 654 tay không đọ voi — hùng tráng
+    - {track: "04_Shadows_at_the_Mountain_Gate",  start: 5110.04,  end: 6241.34}  # 655-656 ám toán, ngân cầu như mưa sao băng
+    - {track: "03_The_Stone_Vault_s_Breath",      start: 6241.34,  end: 7324.40}  # 657-658 quay giáo, lưới trời, con cáo già
+    - {track: "01_Beneath_the_Pine",              start: 7324.40,  end: 7843.82}  # 659 trao binh quyền, kết minh
+    - {track: "02_Beneath_the_Ancient_Peak",      start: 7843.82,  end: 8650.76}  # 660 bàn hỏa khí, khép tập
+
+enhance:
+  # Không mood theo yêu cầu — chỉ overlay + parallax (Parallax/ 253/253 đủ; box tự tắt parallax
+  # sau parallax-link để 2 thẻ intro/ending giữ tĩnh — log "enhance.parallax off" là bình thường).
+  parallax: true
+  overlay: ember-gen-01.mp4
+  sfx:
+    pack: binh-thien
+    # 12 cue / 2h24m (cap box = 8644//420 = 20; voice_end box = START dòng cuối 8644,10):
+    # gió sông băng 646, kỵ binh Nham Dương 648, cụm cự thú 652-654 (đất rung, đuôi Tổ Xà quật giáp,
+    # phun nọc, nỏ voi bắn, voi quỳ gục), quyền đấm nát ngân cầu 656, cụm quay giáo 657-658 (nỏ công
+    # thành trút xuống, phi kiếm chém nát, trọng khải bừng sáng, Hạ Ba Dực rơi trong lưới).
+    # 647/649-651/659-660 để yên (đối thoại/chính trị). 7 file, tối đa 2 lần/file; gap nhỏ nhất 39,5s.
+    # Pin bằng nội suy ký tự trong cue SRT; gain theo max_volume đo được của từng file.
+    cues:
+      - {time: 188.10,  file: dragon-studio-freezing-winter-wind-499654.mp3,         gain_db: -20}  # gió núi mài mặt sông băng (646)
+      - {time: 1537.90, file: dragon-studio-horse-galloping-339737.mp3,              gain_db: -14}  # kỵ binh lao xuống nhanh như điện (648)
+      - {time: 3697.76, file: universfield-impact-cinematic-boom-352465.mp3,         gain_db: -11}  # đất rung — 12 cự thú tiến ra (652)
+      - {time: 4292.70, file: universfield-cinematic-impact-hit-352702.mp3,          gain_db: -13}  # đuôi Tổ Xà quật nát giáp tê (653)
+      - {time: 4355.55, file: dragon-studio-freezing-winter-wind-499654.mp3,         gain_db: -20}  # Tổ Xà phun nọc như mưa rào (653)
+      - {time: 4657.73, file: studiokolomna-whoosh-transitions-sfx-01-118227.mp3,    gain_db: -14}  # nỏ Toái Tinh trên lưng voi bắn (654)
+      - {time: 4939.83, file: freesound_community-hit-swing-sword-small-2-95566.mp3, gain_db: -4}   # voi trắng quỳ sụp xuống đất (654)
+      - {time: 5878.24, file: universfield-cinematic-impact-hit-352702.mp3,          gain_db: -13}  # một quyền đấm nát ngân cầu (656)
+      - {time: 6265.85, file: studiokolomna-whoosh-transitions-sfx-01-118227.mp3,    gain_db: -14}  # nỏ cơ công thành trút xuống đài (657)
+      - {time: 6435.01, file: dragon-studio-sword-unsheathing-393851.mp3,            gain_db: -15}  # phi kiếm chém nát ba đạo kiếm (657)
+      - {time: 6474.53, file: dragon-studio-sword-unsheathing-393851.mp3,            gain_db: -15}  # chân nguyên trọng khải ngân dội (657)
+      - {time: 6797.30, file: universfield-impact-cinematic-boom-352465.mp3,         gain_db: -11}  # Hạ Ba Dực rơi rầm trong lưới (658)

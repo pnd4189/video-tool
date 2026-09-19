@@ -1,0 +1,43 @@
+# Series registry — one entry per story series. Fixed for the whole series from tập 1.
+# A NEW series: ask the user (channel, channel URL, original author, title-list location) at tập 1,
+# then add an entry here. Never guess. Source: memory series-channel-ownership (2026-09-14).
+# No Chinese characters anywhere in these values (user decision 2026-08-25).
+series:
+  - id: binh-thien
+    name: "Bình Thiên Sách"
+    stem_prefix: "Binh_Thien_Sach_"
+    channel: "Chính Dịch Đường"
+    channel_url: "https://www.youtube.com/@ChinhDichDuongVN"
+    original_author: "Vô Tội"
+    copyright: "Bản dịch & sản xuất audio: Chính Dịch Đường. Nguyên tác thuộc về tác giả Vô Tội."
+    # PHẦN 2, column 2 in backticks: "Bình Thiên Sách Tập NN: Hook!" (v2.2, applies from Tập 49).
+    title_source: "/home/dung/cloud/gdrive/1. YOUTUBE AUDIO/BÌNH THIÊN SÁCH/BINH THIEN SACH - VO TOI/BẢN DỊCH/3. HOOK/youtube-title-list-binh-thien-sach-MOBILE-OPTIMIZED-tap-01-90.md"
+    title_pipe_to_dash: false
+    sfx_pack: binh-thien
+    # Tập 1-30 = 10 chương; from Chap 31 = 15 chương: Chap N = chương (N-31)*15+301 .. +315.
+    srt_chapter_numbering: absolute     # SRT headings already carry the real chương number
+    cta:
+      intro: "CTA voice/Intro CTA - with voice.mp4"   # 8.76s; the plain "Intro CTA.mp4" is SILENT
+      outro: "CTA voice/Outro CTA - with voice.mp4"   # 14.69s
+      set_cta_image: false
+    description_base: "Chap 41/outputs/description.txt"   # user-edited 2026-08-27; see description-metadata.md
+    status: ongoing
+
+  - id: dao-si
+    name: "Đạo Sĩ Sợ Ma"
+    stem_prefix: "Dao_Si_Quen_"
+    channel: "HUYỀN DỊCH CÁC"
+    channel_url: "https://www.youtube.com/@HuyenDichCac"
+    original_author: "Hiên Viên Tiểu Bàng"
+    copyright: "Bản dịch & sản xuất audio: Huyền Dịch Các. Nguyên tác thuộc về tác giả Hiên Viên Tiểu Bàng."
+    # Markdown table, last column "Full YouTube title"; use the highest version file present.
+    title_source: "/home/dung/cloud/gdrive/1. YOUTUBE AUDIO/2. ĐẠO SĨ/1111111111111111111111111.dao-si-youtube-metadata_v9.md"
+    title_pipe_to_dash: true            # "|" in the list -> " - " in project.title (Windows filenames)
+    sfx_pack: dao-si
+    srt_chapter_numbering: relative     # TTS batches restart numbering -> captions.renumber needed
+    cta:
+      intro: "CTA voice/cta-intro-v2.mp4"   # 16.853s, Remotion v2; name does not match auto-detect -> set it
+      outro: "CTA voice/cta-outro-v2.mp4"   # 20.843s
+      set_cta_image: false                  # a still would override the animated clip
+    description_base: "previous Chap outputs/description.txt"
+    status: complete                        # Tập 38 was the last episode (2026-09-14)
