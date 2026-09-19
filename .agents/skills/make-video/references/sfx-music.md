@@ -36,6 +36,9 @@ Loudness spread is −11..−47 dB mean across files, so set `gain_db` per cue f
 
 - Density: ~1 cue per 6-9 min, clustered at action/scares/punchlines, ~0 during exposition or
   dialogue chapters. Comedy SFX (boing/scratch/pop) ≤1 per 5-8 min, only on punchlines.
+- Scan the WHOLE SRT, not just the climax: action beats in the first half count too (a cavalry
+  charge, a beast reveal) — picking only from the second half left 56 minutes silent (shadow test
+  BT54, 2026-09-19).
 - Each file at most 2 times per episode.
 - Point SFX sit −8..−15 dB under the voice and are NOT ducked. Whisper/drone/wind files (voice band)
   go lower (≈ −20..−24) — at the point level they mask the narration ("léo nhéo").
