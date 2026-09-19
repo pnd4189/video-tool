@@ -7,12 +7,14 @@ import typer
 
 from videotool import __version__
 from videotool.cli import commands
+from videotool.cli.creative_commands import creative_app, prepare as prepare_folder
 from videotool.cli.storyboard_commands import auto_storyboard, plan_storyboard
 from videotool.core.scene_timing import DEFAULT_MIN_HOLD_SECONDS
 
 app = typer.Typer(no_args_is_help=True)
 storyboard_app = typer.Typer(no_args_is_help=True)
 app.add_typer(storyboard_app, name="storyboard")
+app.add_typer(creative_app, name="creative")
 
 
 @app.command()
@@ -50,6 +52,16 @@ def parallax(
 @app.command()
 def validate(job_path: Path, json_output: bool = typer.Option(False, "--json")) -> None:
     raise typer.Exit(commands.validate(job_path, json_output=json_output))
+
+
+@app.command()
+def prepare(
+    folder: Path,
+    target: Literal["local", "cloud"] = typer.Option("local", "--target"),
+    creative: Path | None = typer.Option(None, "--creative", exists=True, dir_okay=False),
+) -> None:
+    """Prepare a staged episode folder in place (the same steps the cloud render box runs)."""
+    raise typer.Exit(prepare_folder(folder, target, creative))
 
 
 @app.command("parallax-link")

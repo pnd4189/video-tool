@@ -103,10 +103,11 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
   locally, the box runs no LLM (the on-box LLM is only an `autonomous=True` fallback), NVENC or
   x264 with resumable Drive checkpoints, results publish to the source folder. Kaggle primary,
   Colab fallback. *(2026-07-11.)* → kaggle-runbook.md
-- **Local and cloud job preparation merge into one package step**, driven by the same
-  `creative.yaml`. Reverses the 2026-07-11 "local flow byte-unchanged, cloud is a parallel system":
-  the cloud copy silently lost the intro/ending cards from ĐS25 to ĐS38 while local was right.
-  *(2026-09-19; implementation in progress.)*
+- **Local and cloud job preparation merge into one package step** (`videotool.creative`, driven by
+  `videotool prepare` / `Colab/cloud_director.py`; `videotool creative lint` + `sfx-pin` check the
+  same rules before staging). Reverses the 2026-07-11 "local flow byte-unchanged, cloud is a
+  parallel system": the cloud copy silently lost the intro/ending cards from ĐS25 to ĐS38 while
+  local was right. *(2026-09-19.)*
 - **One knowledge source in the repo** (this file + `.agents/skills/`); per-CLI memories only point
   here. Render-only agents work under the guard above. *(2026-09-19.)*
 

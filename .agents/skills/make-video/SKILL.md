@@ -46,9 +46,9 @@ Everything else: decide, act, report at the end.
 
 ## Step 2 — Author the creative layer
 
-Write `creative.yaml` (Kaggle). Local has no creative step yet: most fields go straight into
-`job.yaml`, except the creative-only keys `captions.renumber`, `render.bitrate_cap`,
-`enhance.overlay` and `project.chapters` — Step 4b says what to do instead. Start from
+Write `creative.yaml` (Kaggle, and locally the same file feeds `videotool prepare`). Local
+`job.yaml` has no `captions.renumber`, `render.bitrate_cap`, `enhance.overlay` or `project.chapters`
+keys — `videotool prepare --target local --creative creative.yaml` applies them for you. Start from
 `examples/creative-binh-thien.yaml` or `examples/creative-dao-si.yaml`.
 - `project.title` verbatim from the title list; `project.metadata` from series.yaml;
   `project.description`, `project.recap_previous`, `project.chapters`
@@ -66,11 +66,19 @@ creative, template, config and any helper scripts.
 
 ## Step 3 — Validate locally
 
-- Simulate the SFX filter; every cue must survive (`sfx-music.md`).
-- Dry-run the director on a scratch copy of the folder: `Colab/cloud_director.run(job_dir,
-  creative_path)` (needs the SRT, Image/, Music/ present; stub big media if needed), then render the
-  description with the template. Check: no `{{…}}` left, 0 CJK chars, < 5000 chars before `==== TAGS`,
-  chapter times match the SRT.
+Pin the SFX beats and lint the whole creative against the real source (no media downloaded):
+
+```bash
+.venv/bin/videotool creative sfx-pin "<source>" --picks picks.yaml --creative creative.yaml
+.venv/bin/videotool creative lint "<source>" --creative creative.yaml --preview description-preview.txt
+```
+
+`picks.yaml` = `[{quote, near, file, gain_db?, note?}]` — a short narration quote plus its rough
+second; sfx-pin interpolates the exact time inside the SRT cue and rewrites `enhance.sfx.cues`,
+printing KEEP/DROP per cue. `lint` replays the box's preparation on a stand-in of the folder: 0
+errors required (warnings need a decision). It checks the title against the series list, metadata,
+CJK chars, description length/placeholders, SFX pack files and drops, music coverage, parallax
+coverage, title cards; the preview is the exact description `package` will render.
 
 ## Step 4a — Kaggle render (default)
 

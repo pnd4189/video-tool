@@ -25,13 +25,12 @@ Loudness spread is −11..−47 dB mean across files, so set `gain_db` per cue f
 
 ## Hard limits the box enforces (cue silently dropped otherwise)
 
-- time ≥ 30s (intro/CTA region) and ≤ `voice_end − 25s` (outro region)
+- time ≥ 30s (intro/CTA region) and ≤ `voice_end − 25s` (outro region; `voice_end` = the END of the
+  last SRT cue — it used to be the START, which silently cut the cap one cue short until 2026-09-19)
 - ≥ 30s after the previous KEPT cue — two cues 15s apart lose one
 - count ≤ `max(15, voice_end // 420)` (one per ~7 min beyond 15)
-- `voice_end` on the box is currently the **START** of the last SRT cue, not its end (bug, fix
-  pending). Until then compute the cap and the tail limit from that start.
-- Always simulate: `cd._filter_sfx_cues(cues, available, voice_end)` and count survivors before
-  staging. A dropped climax cue is silent — nothing errors.
+- Run `videotool creative lint` (kept/dropped with reasons) and `videotool creative sfx-pin` (quote
+  → exact time) instead of simulating the filter by hand. A dropped climax cue is silent.
 
 ## Convention (not enforced — keep it)
 

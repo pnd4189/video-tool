@@ -42,8 +42,9 @@ seen. New lessons do NOT go here directly — see lessons-inbox.md.
 - One image can legitimately hold 7-10 min where the plan has no scene — no maximum hold by user
   decision; report the number, do not add a cap (dao-si-chap36).
 - SFX cues closer than 30s, inside the 30s head / 25s tail, or over the cap are dropped silently
-  → simulate `_filter_sfx_cues` (sfx-music.md). Off-by-one on `voice_end`: fix pending;
-  until it lands, use the START of the last SRT cue (chap47).
+  → run `videotool creative lint` (sfx-music.md). The `voice_end` used to be the START of the last
+  SRT cue, silently cutting the cap/tail one cue short (chap47 lost its 18th cue) — fixed 2026-09-19;
+  it is now the END of the last cue everywhere.
 - ĐẠO SĨ SRT chapter numbers are relative → `captions.renumber` (description-metadata.md).
 - `mood` without `grain: false` → multi-GB blowup (melancholy-grain-bitrate-blowup).
 

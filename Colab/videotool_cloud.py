@@ -78,14 +78,14 @@ def setup(repo_ref: str = DEFAULT_REPO_REF, wheelhouse: str | Path | None = None
 
 def detect_voice(job_dir: Path) -> Path:
     """The narration audio (`voice.*` first, else the first audio file in the folder root)."""
-    from videotool.creative.prepare import detect_voice as _detect_voice  # noqa: PLC0415
+    from videotool.creative.detect import detect_voice as _detect_voice  # noqa: PLC0415
 
     return _detect_voice(job_dir)
 
 
 def detect_script(job_dir: Path) -> Path | None:
     """The polished narration script (`*_vi_qa.txt` preferred); None when absent."""
-    from videotool.creative.prepare import detect_script as _detect_script  # noqa: PLC0415
+    from videotool.creative.detect import detect_script as _detect_script  # noqa: PLC0415
 
     return _detect_script(job_dir)
 
