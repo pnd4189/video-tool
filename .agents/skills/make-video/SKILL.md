@@ -82,9 +82,14 @@ coverage, title cards; the preview is the exact description `package` will rende
 
 ## Step 4a — Kaggle render (default)
 
-Follow `references/kaggle-runbook.md` exactly: pick kernel + config file from the runtime, stage
-creative → template → config and verify each (md5), tell the user to open the kernel and Save & Run
-All, monitor, check the checkpoint job.yaml early, verify the publish, clean up the config.
+```bash
+.venv/bin/videotool cloud stage "<source>" --creative creative.yaml --runtime gpu|tpu \
+    [--slug <slug>] [--scene-workers 32] [--resume] [--template <file>] [--dry-run]
+```
+Stage runs the lint gate + every guard, uploads creative (+ template) and the runtime's config
+(never `repo_ref`), then pings Telegram. Tell the user to open that runtime's kernel and Save &
+Run All — `videotool-watchd` watches, verifies, notifies and cleans the config on its own. Details:
+`references/kaggle-runbook.md`.
 
 ## Step 4b — Local render (user says "local")
 

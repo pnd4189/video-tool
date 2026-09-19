@@ -35,53 +35,27 @@ architecture: `docs/cloud-render-setup.md`. Sources: memories `render-on-kaggle-
    Count `Parallax/` vs `Image/` — they must match (see fx-parallax.md).
 3. **Author `creative.yaml`** (see examples/). Rules: sfx-music.md, description-metadata.md,
    fx-parallax.md. Title comes verbatim from the series title list (series.yaml).
-4. **Validate locally before staging**: run `cloud_director.apply_creative` / `run` on a scratch
-   copy, check SFX survivors with `_filter_sfx_cues`, render the description with
-   `render_description_template`, regex `[一-鿿]` on everything you wrote, count description chars.
-5. **Stage all three files BEFORE telling the user to click** (dao-si-chap31: a click before the
-   config existed killed a run):
-   - `creative.yaml` → `gdrive:_VIDEOTOOL_SHARED/creative/<slug>.yaml`
-   - description template → the SOURCE folder root as `<stem>_DESCRIPTION_TEMPLATE.txt` (the box
-     only globs the job root; many Chap folders ship without one)
-   - the config JSON for the chosen kernel:
-     ```json
-     {"source": "gdrive:1. YOUTUBE AUDIO/.../Chap N",
-      "output": "gdrive:1. YOUTUBE AUDIO/.../Chap N/outputs",
-      "checkpoint": "gdrive:_VIDEOTOOL_SHARED/checkpoints/<slug>",
-      "creative": "gdrive:_VIDEOTOOL_SHARED/creative/<slug>.yaml"}
-     ```
-     TPU adds `"allow_cpu": true, "scene_workers": 32`. **Omit `repo_ref`** (the notebook default
-     is the full `git+https://github.com/pnd4189/video-tool@main`; a bare `@main` broke pip once).
-   - Verify each upload with `rclone lsl` + md5. `rclone copyto` has hung to a timeout without an
-     error (dao-si-chap37); use absolute local paths (the shell cwd can reset between commands).
-6. **Code freshness.** The box loads `cloud_director.py`, `cloud_render_runner.py`,
-   `videotool_cloud.py` from `_VIDEOTOOL_SHARED/` at run time and pip-installs `videotool@main`.
-   Before each render compare md5 of the three local modules with Drive. If they differ, stop and
-   tell the user — deploying code is not a render step (push `main` first, then copy the modules).
-7. **User clicks.** Open the saved kernel → pick the accelerator → Save & Run All. Never
-   `kaggle kernels push`: a push detaches the `RCLONE_CONF` secret (it is base64 of
-   `~/.config/rclone/rclone.conf`; only the user re-attaches it in the UI).
-8. **Monitor** `kaggle kernels status <kernel>` every few minutes. A kernel shows the previous run's
-   COMPLETE/ERROR until the new run reaches QUEUED/RUNNING — only a terminal state seen AFTER that
-   counts. Queue time is not billed.
-9. **Verify early** (~5-10 min after RUNNING): pull `checkpoints/<slug>/job.yaml` and check
-   `inputs.{music,intro_image,ending_image,intro_cta,outro_cta,description_template}`, encoder name
-   (the cap shows as `*-capped-2500k`, not as `bitrate_cap`), scene count, SFX count, overlay,
-   `timing.source`. A wrong value can still be patched in the checkpoint job.yaml before scenes finish.
-   Progress = count `checkpoints/<slug>/clips/youtube-16x9/scene-*.mp4`; it can sit at 0 for a long
-   pre-render and jumps in batches.
-10. **Verify the publish** (COMPLETE): `outputs/` holds `<title>.mp4`, `description.txt`,
-    `captions.srt`, `captions.youtube.srt`, `chapters.json`, `quality-report.json` (11 checks),
-    `thumbnail-1280x720.jpg`. Duration math: mp4 = intro CTA + narration + outro CTA (±0.1s) —
-    an outro cut is invisible to QA. See pitfalls.md "verify" for how to read a multi-GB mp4 cheaply.
-11. **Clean up** after verification:
-    - First run `kaggle kernels status` on BOTH kernels. If the other kernel is RUNNING, its config
-      belongs to a live render (maybe another session) — do not touch it (chap45 nearly deleted one).
-    - Delete only the config file your episode used. Leaving it lets a stray Save & Run All
-      re-render a published episode and overwrite its outputs.
-    - The runner purges the checkpoint after a verified publish; now and then list
-      `_VIDEOTOOL_SHARED/checkpoints/` for leftovers.
-    - Local scratch keeps creative + config as the record; delete downloaded mp4s.
+4. **Pin + stage** (lint runs inside stage; it also guards repo-public, module md5, idle kernel,
+   config collision and a foreign checkpoint — and never writes `repo_ref`):
+   ```bash
+   .venv/bin/videotool creative sfx-pin "<source>" --picks picks.yaml --creative creative.yaml
+   .venv/bin/videotool cloud stage "<source>" --creative creative.yaml --runtime tpu \
+    [--slug <slug>] [--scene-workers 32] [--resume] [--template <file>]
+   ```
+   Stage uploads creative (+ template) and the runtime's config, then pings Telegram. `--dry-run`
+   shows the plan without writing.
+5. **User clicks.** Open the kernel for the chosen runtime (TPU: `pnd4189/videotool-render-tpu`,
+   GPU: `pnd4189/videotool-render`) → Save & Run All. Still never `kaggle kernels push`.
+6. **The watcher daemon does the rest** (`videotool-watchd.service`, no LLM): Telegram "started"
+   when the new run reaches QUEUED/RUNNING (a stale COMPLETE/ERROR from an older run is ignored),
+   clip counts + an early check of the checkpoint job.yaml while running, verify + "done" (and
+   config cleanup) or "failed" with the first real error lines. Manual: `videotool renders`
+   (table), `videotool renders status <slug>`, `videotool cloud watchd --once`,
+   `videotool cloud finish <slug>`. CLI sessions surface status through the hook (Phase 5).
+7. **Resume** after a disconnect: stage again with `--resume` and the same slug, user clicks again.
+
+Code freshness is checked by stage itself (module md5 vs origin/main) — if it blocks, deploy first
+(push main, then `rclone copyto` the 3 Colab modules to `_VIDEOTOOL_SHARED/`).
 
 ## Size cap
 
@@ -92,8 +66,9 @@ User ceiling is 4.5 GB. 2-3.5h episodes → 2500k (the default 2800k overshoots 
 
 ## Failure triage
 
-- Get the real log: `kaggle kernels output <kernel> -p <dir>` → parse `videotool-render.log`
-  (papermill JSON) for the `===== *-mux.log =====` dump. The log only appears on completion.
+- Get the real log: `kaggle kernels output <kernel> -p <dir>` → `<kernel-slug>.log`
+  (`videotool-render-tpu.log` on TPU), a papermill JSON array; look for the `===== *-mux.log =====`
+  dump. The watcher does this itself and sends the first error lines. The log only appears on completion.
 - `nvenc_can_encode=False` on GPU: read the ffmpeg stderr first; do not conclude "Kaggle broke NVENC".
   On the TPU box the NVENC probe failing is normal (it falls back to x264).
 - Works locally, fails on the box: suspect ffmpeg version skew (GPU box 4.4.2, local 6.1, TPU 7.1).

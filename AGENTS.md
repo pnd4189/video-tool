@@ -108,6 +108,9 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
   same rules before staging). Reverses the 2026-07-11 "local flow byte-unchanged, cloud is a
   parallel system": the cloud copy silently lost the intro/ending cards from ĐS25 to ĐS38 while
   local was right. *(2026-09-19.)*
+- **agy renders with the NEWEST Gemini Pro model at effort High** — checked via `agy models` at
+  each run; today that is `gemini-3.1-pro-high` (shadow test BT54: Pro đạt 5/5 tiêu chí, Flash loại
+  — copy + dở việc; Opus chỉ dự phòng vì chạy bằng quota Anthropic). *(2026-09-19.)*
 - **One knowledge source in the repo** (this file + `.agents/skills/`); per-CLI memories only point
   here. Render-only agents work under the guard above. *(2026-09-19.)*
 

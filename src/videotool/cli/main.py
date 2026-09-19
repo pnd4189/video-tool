@@ -7,7 +7,9 @@ import typer
 
 from videotool import __version__
 from videotool.cli import commands
+from videotool.cli.cloud_commands import cloud_app
 from videotool.cli.creative_commands import creative_app, prepare as prepare_folder
+from videotool.cli.runs_commands import renders_app
 from videotool.cli.storyboard_commands import auto_storyboard, plan_storyboard
 from videotool.core.scene_timing import DEFAULT_MIN_HOLD_SECONDS
 
@@ -15,6 +17,8 @@ app = typer.Typer(no_args_is_help=True)
 storyboard_app = typer.Typer(no_args_is_help=True)
 app.add_typer(storyboard_app, name="storyboard")
 app.add_typer(creative_app, name="creative")
+app.add_typer(cloud_app, name="cloud")
+app.add_typer(renders_app, name="renders")
 
 
 @app.command()

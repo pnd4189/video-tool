@@ -112,12 +112,8 @@ def lint(
                 report.errors.append(f"preparation failed: {exc}")
                 return report
             inputs = data.get("inputs") or {}
-            cta_rel = _rel(job, inputs.get("intro_cta"))
-            cta_s = media_seconds(source, cta_rel) if cta_rel else 0.0
-            if cta_s is None:
-                report.warnings.append(f"could not read the length of {cta_rel}; chapter times shown without the CTA offset")
-                cta_s = 0.0
-        _run_checks(report, source, job, creative, data, standin, cta_s, series_path, Path(sfx_library))
+            cta = {key: _cta_seconds(report, source, _rel(job, inputs.get(key))) for key in ("intro_cta", "outro_cta")}
+        _run_checks(report, source, job, creative, data, standin, cta, series_path, Path(sfx_library))
         if keep:
             report.summary["stand_in"] = str(job)
         return report
@@ -126,8 +122,19 @@ def lint(
             shutil.rmtree(work, ignore_errors=True)
 
 
-def _run_checks(report, source, job, creative, data, standin, cta_s, series_path, sfx_library) -> None:
+def _cta_seconds(report: LintReport, source: str, rel: str | None) -> float | None:
+    """0.0 without that CTA; None (plus a warning) when the clip's length cannot be read."""
+    if not rel:
+        return 0.0
+    seconds = media_seconds(source, rel)
+    if seconds is None:
+        report.warnings.append(f"could not read the length of {rel}; times shown without that CTA")
+    return seconds
+
+
+def _run_checks(report, source, job, creative, data, standin, cta, series_path, sfx_library) -> None:
     end_s = standin.voice_seconds
+    cta_s = cta["intro_cta"] or 0.0
     registry = series_path or find_registry()
     entry = match_series(load_series(registry), standin.files) if registry else None
     if registry is None:
@@ -153,7 +160,8 @@ def _run_checks(report, source, job, creative, data, standin, cta_s, series_path
         "source": source,
         "series": (entry or {}).get("id"),
         "voice_seconds": round(end_s, 2),
-        "intro_cta_seconds": round(cta_s, 3),
+        "intro_cta_seconds": cta["intro_cta"],
+        "outro_cta_seconds": cta["outro_cta"],
         "timing": data.get("timing"),
         "scenes": {"total": len(board), "stills": stills,
                    "parallax": sum(1 for s in videos if str(s["video"]).startswith("Parallax/")),
