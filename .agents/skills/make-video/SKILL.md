@@ -34,6 +34,13 @@ Everything else: decide, act, report at the end.
   `render_job*.json` cleanup. Local deletes only under `$HOME/.cache/videotool/<name>`.
 - Never `kaggle kernels push`, never edit repo code/workflow files, never `git commit`/`push`, never
   `pip install`. If code looks wrong or stale, stop and tell the user.
+- In agy a `PreToolUse` guard enforces that list (`videotool agent guard`). A block is final: read
+  the reason, stop, and tell the user — do not look for another way round it. Your own working
+  folder is `plans/scratch-<slug>/`; the staged copy under `$HOME/.cache/videotool/<name>` and
+  `/tmp` are yours too.
+- Learned something the references do not say? `videotool agent lesson "<what happened / evidence /
+  suggested rule>" --episode <slug>` — it goes to `references/lessons-inbox.md` and messages the
+  user; say it in the session too. Never edit a reference yourself.
 - Every rule in the references carries its source; do not relax a limit because it seems arbitrary.
 
 ## Step 1 — Inspect (read-only)

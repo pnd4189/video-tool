@@ -1,0 +1,25 @@
+{
+  "videotool-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content|multi_replace_file_content|run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/dung/VIBE_CODING/video-tool/.venv/bin/python -m videotool.agent.guard",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "videotool-renders": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "/home/dung/VIBE_CODING/video-tool/.venv/bin/python -m videotool.runs.hook --cli agy --event auto --payload -",
+        "timeout": 10
+      }
+    ]
+  }
+}

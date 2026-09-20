@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/dung/VIBE_CODING/video-tool/.venv/bin/python -m videotool.runs.hook --cli claude --event start",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/dung/VIBE_CODING/video-tool/.venv/bin/python -m videotool.runs.hook --cli claude --event prompt",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

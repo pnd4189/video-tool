@@ -40,8 +40,14 @@ are the per-episode creative/template/config files and the cleanup of its own `r
 - **Render-only agents (agy, codex)** run renders. They must not edit code, tests, notebooks, the
   skill, references, `AGENTS.md` or configs; must not run git commands that change state,
   `pip install`, or `kaggle kernels push`. When something in code looks wrong, stop and tell the user.
-- **New lessons go into the repo, never into a CLI's private memory.** Render-only agents append to
-  `references/lessons-inbox.md` (or run `videotool agent lesson` once it exists) and tell the user.
+- **The guard enforces this in agy, it is not an honour system:** `.agents/hooks.json` runs
+  `videotool agent guard` on every write and `run_command`, denying repo writes outside `plans/`,
+  writes on the mount, state-changing git, `pip install`, `kaggle kernels push`, destructive
+  `rclone` (copy/copyto stay allowed — that is how an episode publishes) and stopping the watcher.
+  Everything else runs free; an unreadable payload asks the user. *(2026-09-20.)*
+- **New lessons go into the repo, never into a CLI's private memory.** Render-only agents run
+  `videotool agent lesson "<text>" --episode <slug>` (appends to `references/lessons-inbox.md` and
+  messages the user) and say it in the session.
   Claude verifies an inbox entry against code/logs before moving it into a reference, when the user
   asks. Every rule in a reference names its source (memory slug, episode log, or commit).
 

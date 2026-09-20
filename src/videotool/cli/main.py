@@ -7,6 +7,7 @@ import typer
 
 from videotool import __version__
 from videotool.cli import commands
+from videotool.cli.agent_commands import agent_app
 from videotool.cli.cloud_commands import cloud_app
 from videotool.cli.creative_commands import creative_app, prepare as prepare_folder
 from videotool.cli.runs_commands import renders_app
@@ -19,6 +20,7 @@ app.add_typer(storyboard_app, name="storyboard")
 app.add_typer(creative_app, name="creative")
 app.add_typer(cloud_app, name="cloud")
 app.add_typer(renders_app, name="renders")
+app.add_typer(agent_app, name="agent")
 
 
 @app.command()

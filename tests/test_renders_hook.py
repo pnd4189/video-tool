@@ -63,7 +63,8 @@ def test_output_formats(tmp_path, monkeypatch):
 
 def test_auto_event_reads_the_agy_payload(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-    assert hook_mod.choose_event("agy", json.dumps({"invocationNum": 1})) == "start"
+    assert hook_mod.choose_event("agy", json.dumps({"invocationNum": 0})) == "start"
+    assert hook_mod.choose_event("agy", json.dumps({"invocationNum": 1})) == "prompt"
     assert hook_mod.choose_event("agy", json.dumps({"invocationNum": 4})) == "prompt"
     assert hook_mod.choose_event("agy", "not-json") == "prompt"
     assert hook_mod.choose_event("claude", "") == "prompt"
@@ -111,3 +112,25 @@ def test_the_session_opener_marks_everything_seen_so_the_first_prompt_is_quiet(t
     state.transition(st, "done")
     state.save(st)
     assert "done" in hook_mod.hook_output("claude", "prompt", "", runner)
+
+
+def test_start_reports_pending_lessons_and_uncommitted_protected_files(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr("videotool.agent.lessons.pending", lambda *a, **k: 2)
+    runner = FakeRunner({
+        ("systemctl", "--user", "is-active"): (0, "active"),
+        ("git", "-C"): (0, " M src/videotool/cli/main.py\n?? plans/scratch-x/creative.yaml\n"
+                           'R  "old name.py" -> "src/videotool/new.py"\n'),
+    })
+    out = hook_mod.start_context(runner)
+    assert "2 bài học" in out
+    assert "src/videotool/cli/main.py" in out and "src/videotool/new.py" in out
+    assert "creative.yaml" not in out          # plans/ is the agent's own scratch space
+    assert "2 file code" in out
+
+
+def test_start_stays_quiet_when_nothing_is_pending(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr("videotool.agent.lessons.pending", lambda *a, **k: 0)
+    runner = FakeRunner({("systemctl", "--user", "is-active"): (0, "active"), ("git", "-C"): (0, "")})
+    assert hook_mod.start_context(runner) == ""

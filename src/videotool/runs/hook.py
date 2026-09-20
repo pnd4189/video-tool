@@ -27,10 +27,29 @@ def _summary(states: list[dict]) -> str:
     return "\n".join(run_state.summary_line(s) for s in states) if states else ""
 
 
-def start_context(runner: Runner) -> str:
+def protected_changes(runner: Runner) -> list[str]:
+    """Uncommitted changes outside `plans/` — what a render-only agent must never have touched."""
+    from videotool.agent.guard import REPO_ROOT, WRITABLE_IN_REPO
+
+    code, out = runner(["git", "-C", str(REPO_ROOT), "status", "--porcelain"], timeout=15)
+    if code != 0:
+        return []
+    text = out.decode("utf-8", errors="replace") if isinstance(out, bytes) else out
+    paths = []
+    for line in text.splitlines():
+        path = line[3:].split(" -> ")[-1].strip().strip('"')
+        if path and not path.startswith(tuple(f"{d}/" for d in WRITABLE_IN_REPO)):
+            paths.append(path)
+    return paths
+
+
+def start_context(runner: Runner, cli: str = "claude") -> str:
+    """The session opener. The inbox count and the protected-file warning are Claude's detection
+    net — a render-only agent gets only the render status."""
+    from videotool.agent.lessons import pending
+
     active = run_state.list_states(days=30.0, statuses=run_state.ACTIVE)
-    recent = [s for s in run_state.list_states(days=1.0, statuses=run_state.TERMINAL)
-              if s not in active]
+    recent = run_state.list_states(days=1.0, statuses=run_state.TERMINAL)
     lines = []
     if active:
         lines.append("[videotool] đang chạy:")
@@ -40,6 +59,15 @@ def start_context(runner: Runner) -> str:
         lines.append(_summary(recent))
     if active and not _daemon_running(runner):
         lines.append(f"[videotool] CẢNH BÁO: {DAEMON_UNIT} không chạy — không ai canh/báo các tập trên.")
+    if cli != "claude":
+        return "\n".join(lines)
+    waiting = pending()
+    if waiting:
+        lines.append(f"[videotool] {waiting} bài học trong lessons-inbox.md chờ xác minh.")
+    touched = protected_changes(runner)
+    if touched:
+        lines.append(f"[videotool] {len(touched)} file code/workflow đang sửa chưa commit: "
+                     + ", ".join(touched[:5]) + ("…" if len(touched) > 5 else ""))
     return "\n".join(lines)
 
 
@@ -100,21 +128,23 @@ def prompt_context(cli: str) -> str:
 
 
 def choose_event(cli: str, payload: str) -> str:
-    """`auto` for agy: the first invocation of a session is a start, later ones a prompt."""
+    """`auto` for agy: the first invocation of a session is a start, later ones a prompt.
+
+    `invocationNum` counts from 0 — captured from a real agy PreInvocation payload, 2026-09-20."""
     if cli != "agy" or not payload:
         return "prompt"
     try:
         data = json.loads(payload)
     except ValueError:
         return "prompt"
-    return "start" if int(data.get("invocationNum", 0)) == 1 else "prompt"
+    return "start" if int(data.get("invocationNum", -1)) == 0 else "prompt"
 
 
 def hook_output(cli: str, event: str, payload: str, runner: Runner) -> str:
     """The exact stdout for the CLI's hook config; empty string when there is nothing to say."""
     event = event if event != "auto" else choose_event(cli, payload)
     if event == "start":
-        text = start_context(runner).strip()
+        text = start_context(runner, cli).strip()
         mark_seen(cli, _known_states())  # the first prompt hook must not repeat the session opener
     else:
         text = prompt_context(cli).strip()
@@ -122,7 +152,11 @@ def hook_output(cli: str, event: str, payload: str, runner: Runner) -> str:
         return ""
     if cli == "agy":
         return json.dumps({"injectSteps": [{"ephemeralMessage": text}]}, ensure_ascii=False)
-    return json.dumps({"hookSpecificOutput": {"additionalContext": text}}, ensure_ascii=False)
+    # Claude Code ignores hookSpecificOutput without the event name (verified against the hooks
+    # already running on this machine).
+    name = "SessionStart" if event == "start" else "UserPromptSubmit"
+    return json.dumps({"hookSpecificOutput": {"hookEventName": name, "additionalContext": text}},
+                      ensure_ascii=False)
 
 
 def install_service(runner: Runner, venv_bin: Path) -> Path:
