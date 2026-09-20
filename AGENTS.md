@@ -138,7 +138,9 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
 - Every subprocess capture uses `errors="replace"` — Vietnamese bytes cannot crash a run (2026-07-13).
 - The Google CLI is Antigravity (`agy`); Gemini CLI is discontinued. Headless `agy -p` runs in an
   empty default project and loads NO workspace skills — pass `--project /home/dung/VIBE_CODING/video-tool`
-  (verified 2026-09-19 with `agy -p "/skills"`).
+  (verified 2026-09-19 with `agy -p "/skills"`); headless also ignores `permissions.allow`, needs
+  `--dangerously-skip-permissions`, and exits while a command still runs in the background, so real
+  renders run in interactive agy.
 - Key files: `src/videotool/core/{job_spec,storyboard,services}.py`, `render/{video_filters,segmented,
   executor,sfx_mix}.py`, `cli/main.py`; cloud: `Colab/{cloud_director,cloud_render_runner,videotool_cloud}.py`
   and the notebooks `Colab/videotool-render{,-tpu}.ipynb`.
