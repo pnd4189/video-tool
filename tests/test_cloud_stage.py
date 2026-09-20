@@ -195,3 +195,13 @@ def test_unknown_cta_length_leaves_expected_duration_unknown(tmp_path, monkeypat
                                                     "intro_cta_seconds": 8.7, "outro_cta_seconds": None}))
     assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=_ok_runner()) == 0
     assert run_state.load("binh-thien-chap55")["expected_seconds"] is None
+
+
+def test_dry_run_reports_a_blocked_stage_with_a_failing_exit_code(tmp_path, monkeypatch, capsys):
+    _patch(monkeypatch, tmp_path)
+    runner = _ok_runner()
+    runner.responses[("kaggle", "kernels", "status")] = (0, 'k has status "KernelWorkerStatus.RUNNING"')
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", dry_run=True, runner=runner) == 1
+    out = capsys.readouterr().out
+    assert "BLOCK" in out and "BỊ CHẶN" in out
+    assert not runner.seen("rclone", "copyto")

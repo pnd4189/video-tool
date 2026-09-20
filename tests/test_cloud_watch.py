@@ -238,3 +238,33 @@ def test_a_timeout_counts_as_a_watch_failure(tmp_path, monkeypatch):
 
     watch_mod.step(st, Hangs(), now=2000.0)
     assert st["failures"] == 1 and "timed out" in st["error"]
+
+
+def test_the_queued_message_does_not_claim_the_render_started(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    st = _state(tmp_path)
+    watch_mod.step(st, _runner(kernel=QUEUED), now=1100.0)
+    detail = st["last_event"]["detail"]
+    assert "đã vào hàng đợi" in detail and "bắt đầu chạy" not in detail
+    watch_mod.step(st, _runner(kernel=RUNNING), now=1200.0)
+    assert st["status"] == "running" and st["last_event"]["detail"] == detail  # still one message
+
+
+def test_the_kernel_log_wins_over_an_episode_log_that_sorts_earlier(tmp_path):
+    import json as _json
+    from pathlib import Path
+
+    from videotool.cloud.kernel_log import kernel_error_lines
+
+    class WritesBoth(FakeRunner):
+        def __call__(self, args, timeout=0, env=None):
+            super().__call__(args, timeout=timeout, env=env)
+            if args[:3] == ["kaggle", "kernels", "output"]:
+                dest = Path(args[args.index("-p") + 1])
+                (dest / "scene-mux.log").write_text("ffmpeg noise\n", encoding="utf-8")
+                (dest / "videotool-render-tpu.log").write_text(_json.dumps(
+                    [{"stream_name": "stderr", "time": 1, "data": "RunnerError: no NVENC\n"}]),
+                    encoding="utf-8")
+            return 0, b""
+
+    assert kernel_error_lines(WritesBoth(), "pnd4189/videotool-render-tpu") == ["RunnerError: no NVENC"]

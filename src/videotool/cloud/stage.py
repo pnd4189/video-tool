@@ -96,7 +96,9 @@ def stage(
             print(f"  - upload template {Path(template).name} -> {source}/ (nếu chưa có)")
         print(f"  - write {shared}/{cfg_name}: {json.dumps(config, ensure_ascii=False)}")
         print(f"  - state {run_state.path_for(slug)}: staged")
-        return 0
+        if violations:
+            print("--dry-run: nhưng sẽ BỊ CHẶN vì các lý do BLOCK ở trên")
+        return 1 if violations else 0
 
     remote.write_remote_file(runner, Path(creative_path), config["creative"])
     if template and _remote_template(runner, source, Path(template)) is None:

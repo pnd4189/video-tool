@@ -71,11 +71,6 @@ def remote_head(runner: Runner, remote: str, nbytes: int, timeout: float = 300) 
     return out if isinstance(out, bytes) else out.encode("latin-1")
 
 
-def remote_exists(runner: Runner, remote: str) -> bool:
-    code, _ = runner(["rclone", "lsf", remote], timeout=60)
-    return code == 0
-
-
 def write_remote_file(runner: Runner, local: Path, remote: str) -> None:
     rclone_text(runner, ["copyto", str(local), remote])
 
@@ -86,7 +81,7 @@ def delete_remote_file(runner: Runner, remote: str) -> None:
 
 def md5_of_blob(runner: Runner, git_path: str) -> str:
     code, out = runner(["git", "-C", str(Path(__file__).resolve().parents[3]),
-                        "show", f"origin/main:{git_path}"], 60)
+                        "show", f"origin/main:{git_path}"], timeout=60)
     if code != 0:
         raise RemoteError(f"git show origin/main:{git_path} exited {code}")
     return hashlib.md5(out).hexdigest()

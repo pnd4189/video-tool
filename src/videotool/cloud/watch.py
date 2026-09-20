@@ -81,7 +81,10 @@ def _staged(state: dict, runner: Runner, now: float) -> None:
         return
     if kernel_status in ("queued", "running"):
         run_state.transition(state, "running" if kernel_status == "running" else "queued")
-        notify(runner, state, "started", f"[{state['slug']}] bắt đầu chạy trên Kaggle "
+        # One "started" per run, so the wording must match what Kaggle actually reports now: a
+        # queued kernel has been accepted, not started, and no second message follows.
+        moved = "bắt đầu chạy" if kernel_status == "running" else "đã vào hàng đợi"
+        notify(runner, state, "started", f"[{state['slug']}] {moved} trên Kaggle "
                                          f"(chờ {waited/60:.0f} phút) — {state['kernel']}")
         return
     if waited >= ABANDON_AFTER_S:

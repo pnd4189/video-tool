@@ -43,26 +43,59 @@ def start_context(runner: Runner) -> str:
     return "\n".join(lines)
 
 
-def prompt_context(cli: str) -> str:
-    """Changes since the last time this CLI looked: new renders or any status move."""
-    marker = run_state.state_dir() / f".seen-{cli}.json"
+def _known_states() -> list[dict]:
+    return run_state.list_states(days=7.0, statuses=run_state.ACTIVE + run_state.TERMINAL)
+
+
+def _load_seen(cli: str) -> dict:
     try:
-        seen = json.loads(marker.read_text(encoding="utf-8"))
+        return json.loads((run_state.state_dir() / f".seen-{cli}.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        seen = {}
-    changed = []
-    now = time.time()
-    for st in run_state.list_states(days=7.0, statuses=run_state.ACTIVE + run_state.TERMINAL):
-        if st.get("updated_at", 0) > float(seen.get(st["slug"], 0)) + 1.0:
-            changed.append(st)
-            seen[st["slug"]] = st.get("updated_at", now)
-    if not changed:
-        return ""
+        return {}
+
+
+def _save_seen(cli: str, seen: dict) -> None:
     try:
         run_state.ensure_dir()
-        marker.write_text(json.dumps(seen), encoding="utf-8")
+        (run_state.state_dir() / f".seen-{cli}.json").write_text(json.dumps(seen), encoding="utf-8")
     except OSError:
         pass
+
+
+def _mark(st: dict) -> dict:
+    return {"at": float(st.get("updated_at") or time.time()), "status": st.get("status")}
+
+
+def _is_news(st: dict, mark: dict | float | int | None) -> bool:
+    """A status move is news whenever it happened; a same-status update needs a real time gap.
+
+    Comparing times alone hid a fast transition (verifying -> done lands within the same second)."""
+    if mark is None:
+        return True
+    if isinstance(mark, (int, float)):  # marker written before statuses were recorded
+        mark = {"at": float(mark), "status": None}
+    return st.get("status") != mark.get("status") or \
+        float(st.get("updated_at") or 0) > float(mark.get("at") or 0) + 1.0
+
+
+def mark_seen(cli: str, states: list[dict]) -> None:
+    """Record these states as already shown, so the next prompt hook only reports what moved."""
+    seen = _load_seen(cli)
+    seen.update({st["slug"]: _mark(st) for st in states})
+    _save_seen(cli, seen)
+
+
+def prompt_context(cli: str) -> str:
+    """Changes since the last time this CLI looked: new renders or any status move."""
+    seen = _load_seen(cli)
+    changed = []
+    for st in _known_states():
+        if _is_news(st, seen.get(st["slug"])):
+            changed.append(st)
+            seen[st["slug"]] = _mark(st)
+    if not changed:
+        return ""
+    _save_seen(cli, seen)
     return "[videotool] cập nhật render:\n" + _summary(changed)
 
 
@@ -80,7 +113,11 @@ def choose_event(cli: str, payload: str) -> str:
 def hook_output(cli: str, event: str, payload: str, runner: Runner) -> str:
     """The exact stdout for the CLI's hook config; empty string when there is nothing to say."""
     event = event if event != "auto" else choose_event(cli, payload)
-    text = (start_context(runner) if event == "start" else prompt_context(cli)).strip()
+    if event == "start":
+        text = start_context(runner).strip()
+        mark_seen(cli, _known_states())  # the first prompt hook must not repeat the session opener
+    else:
+        text = prompt_context(cli).strip()
     if not text:
         return ""
     if cli == "agy":

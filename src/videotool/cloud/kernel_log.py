@@ -52,7 +52,9 @@ def kernel_error_lines(runner: Runner, kernel: str) -> list[str]:
     try:
         with tempfile.TemporaryDirectory(prefix="videotool-kernel-log-") as tmp:
             remote.download_kernel_log(runner, kernel, Path(tmp))
-            logs = sorted(Path(tmp).glob("*.log"))
+            # The kernel's own log first: an episode's ffmpeg logs can land beside it and sort earlier.
+            wanted = f"{kernel.rsplit('/', 1)[-1]}.log"
+            logs = sorted(Path(tmp).glob("*.log"), key=lambda p: (p.name != wanted, p.name))
             if not logs:
                 return ["(kernel không trả log)"]
             return error_lines(log_text(logs[0].read_text(encoding="utf-8", errors="replace")))

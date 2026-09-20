@@ -56,10 +56,17 @@ def hook(
 @renders_app.command("install-daemon")
 def install_daemon() -> None:
     """Write ~/.config/systemd/user/videotool-watchd.service and enable it now."""
+    import sys
+
     from videotool.cloud.remote import real_runner
     from videotool.runs.hook import install_service
 
-    venv_bin = Path(__file__).resolve().parents[3] / ".venv/bin/videotool"
+    # The interpreter running this command owns the console script; a repo-relative guess breaks
+    # for any non-editable install, and a wrong ExecStart makes systemd crash-loop.
+    venv_bin = Path(sys.executable).with_name("videotool")
+    if not venv_bin.exists():
+        typer.echo(f"không thấy {venv_bin} — cài videotool vào môi trường này trước", err=True)
+        raise typer.Exit(2)
     try:
         unit = install_service(real_runner, venv_bin)
     except Exception as exc:  # noqa: BLE001

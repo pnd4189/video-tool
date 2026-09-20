@@ -99,3 +99,15 @@ def test_prompt_surfaces_a_render_that_just_finished(tmp_path, monkeypatch):
     state.save(st)
     news = hook_mod.prompt_context("claude")
     assert "a-chap1" in news and "done" in news
+
+
+def test_the_session_opener_marks_everything_seen_so_the_first_prompt_is_quiet(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    _stage("bt-chap55")
+    runner = FakeRunner({("systemctl", "--user", "is-active"): (0, "active")})
+    assert "bt-chap55" in hook_mod.hook_output("claude", "start", "", runner)
+    assert hook_mod.hook_output("claude", "prompt", "", runner) == ""
+    st = state.load("bt-chap55")
+    state.transition(st, "done")
+    state.save(st)
+    assert "done" in hook_mod.hook_output("claude", "prompt", "", runner)
