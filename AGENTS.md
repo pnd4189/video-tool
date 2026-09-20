@@ -37,19 +37,17 @@ are the per-episode creative/template/config files and the cleanup of its own `r
 
 ## Agent roles and lessons
 
-- **Render-only agents (agy, codex)** run renders. They must not edit code, tests, notebooks, the
-  skill, references, `AGENTS.md` or configs; must not run git commands that change state,
-  `pip install`, or `kaggle kernels push`. When something in code looks wrong, stop and tell the user.
-- **The guard enforces this in agy, it is not an honour system:** `.agents/hooks.json` runs
-  `videotool agent guard` on every write and `run_command`, denying repo writes outside `plans/`,
-  writes on the mount, state-changing git, `pip install`, `kaggle kernels push`, destructive
-  `rclone` (copy/copyto stay allowed — that is how an episode publishes) and stopping the watcher.
-  Everything else runs free; an unreadable payload asks the user. *(2026-09-20.)*
-- **New lessons go into the repo, never into a CLI's private memory.** Render-only agents run
-  `videotool agent lesson "<text>" --episode <slug>` (appends to `references/lessons-inbox.md` and
-  messages the user) and say it in the session.
-  Claude verifies an inbox entry against code/logs before moving it into a reference, when the user
-  asks. Every rule in a reference names its source (memory slug, episode log, or commit).
+- **Render-only agents (agy, codex)** run renders: no edits to code, tests, notebooks, the skill,
+  references, `AGENTS.md` or configs. When something in code looks wrong, stop and tell the user.
+- **In agy that is enforced, not trusted** *(2026-09-20)*: `.agents/hooks.json` runs `videotool agent
+  guard` on every write and `run_command`, denying repo writes outside `plans/`, writes on the mount,
+  state-changing git, `pip install`, `kaggle kernels push`, destructive `rclone` (copy/copyto stay
+  allowed — that is how an episode publishes) and stopping the watcher. Everything else runs free; an
+  unreadable payload asks the user.
+- **New lessons go into the repo, never a CLI's private memory:** `videotool agent lesson "<text>"
+  --episode <slug>` appends to `references/lessons-inbox.md` and messages the user; the agent also
+  says it in the session. Claude verifies an entry against code/logs before moving it into a
+  reference, when the user asks. Every rule in a reference names its source.
 
 ## Confirmed project decisions (do NOT silently reverse)
 
