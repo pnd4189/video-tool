@@ -62,10 +62,18 @@ def check_sfx(creative: dict, pack_dir: Path, end_s: float) -> tuple[list[str], 
     if not cues:
         return [], [], []
     available = {p.name for p in pack_dir.glob("*")} if pack_dir.is_dir() else set()
-    raw = [{"time": c.get("time"), "file": Path(str(c.get("file", ""))).name, "gain_db": c.get("gain_db")} for c in cues]
+    raw, unusable = [], []
+    for cue in cues:
+        try:
+            time_s = float(cue.get("time"))
+        except (TypeError, ValueError):
+            # explain_sfx_cues skips these, so without this they would vanish from the report too.
+            unusable.append(f"SFX cue {cue!r} has no usable numeric `time` — it is dropped silently")
+            continue
+        raw.append({"time": time_s, "file": Path(str(cue.get("file", ""))).name, "gain_db": cue.get("gain_db")})
     explained = explain_sfx_cues(raw, available, end_s)
-    errors = [f"SFX {c['file']} @ {c['time']:.2f}s: not in pack {pack_dir.name}" for c, r in explained
-              if r == "file not in the SFX pack"]
+    errors = unusable + [f"SFX {c['file']} @ {c['time']:.2f}s: not in pack {pack_dir.name}" for c, r in explained
+                         if r == "file not in the SFX pack"]
     warnings = [f"SFX {c['file']} @ {c['time']:.2f}s will be DROPPED: {r}" for c, r in explained
                 if r and r != "file not in the SFX pack"]
     return errors, warnings, explained
@@ -88,7 +96,15 @@ def check_music(creative: dict, job_dir: Path, music: str | None, end_s: float) 
             errors.append(f"music track {track} out of range (Music/ has {len(tracks)} tracks)")
         elif isinstance(track, str) and not any(track in stem for stem in tracks):
             errors.append(f"music track '{track}' matches no file in Music/")
-    spans = sorted((float(c.get("start", 0)), float(c.get("end", 0))) for c in cues)
+    spans = []
+    for c in cues:
+        try:
+            spans.append((float(c.get("start", 0)), float(c.get("end", 0))))
+        except (TypeError, ValueError):
+            errors.append(f"music cue {c!r}: start/end must be numbers of seconds")
+    if not spans:
+        return errors, []
+    spans.sort()
     if spans[0][0] > GAP_TOLERANCE_S:
         errors.append(f"music starts at {spans[0][0]:.2f}s — the first {spans[0][0]:.0f}s have no track")
     for (_, prev_end), (start, _) in zip(spans, spans[1:]):

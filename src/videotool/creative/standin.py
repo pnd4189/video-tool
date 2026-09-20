@@ -8,12 +8,15 @@ render box will do — which cue it drops, which card it misses — before anyth
 
 from __future__ import annotations
 
+import fnmatch
 import shutil
 import struct
 import subprocess
 import wave
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from videotool.core.scene_plan import HIDDEN_PLAN_RELATIVE, VISIBLE_PLAN_GLOBS
 
 AUDIO_EXTS = (".wav", ".mp3", ".m4a")
 SKIP_PREFIXES = ("outputs/", ".videotool/", "_creative/")
@@ -56,10 +59,12 @@ def list_files(source: str) -> list[str]:
 
 
 def is_text(rel: str) -> bool:
-    """The files the pipeline actually reads: root SRT/TXT, scene anchors, the hidden scene plan."""
-    if "/" not in rel and rel.lower().endswith((".srt", ".txt", "_scene_anchors.md")):
-        return True
-    return rel == ".work/scene-plan.md"
+    """The files the pipeline actually reads: root SRT/TXT, any scene plan `find_scene_plan` would
+    pick (a zero-byte placeholder there reads as a broken plan and fails the timing guard)."""
+    if "/" in rel:
+        return rel == HIDDEN_PLAN_RELATIVE.as_posix()
+    low = rel.lower()
+    return low.endswith((".srt", ".txt")) or any(fnmatch.fnmatch(low, glob) for glob in VISIBLE_PLAN_GLOBS)
 
 
 def fetch_texts(source: str, rels: list[str], job_dir: Path) -> None:

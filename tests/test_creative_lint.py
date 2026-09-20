@@ -103,3 +103,37 @@ def test_prepare_refuses_a_folder_inside_the_gdrive_mount(tmp_path: Path, monkey
     outside.mkdir(parents=True)
     # No voice in the folder: prepare must fail AFTER the mount check, with a clear error.
     assert cc.prepare(outside, "local", None) == 1
+
+
+def test_sfx_cue_without_a_usable_time_is_reported_not_silently_dropped() -> None:
+    errors, _, explained = lc.check_sfx(_sfx([{"file": "a.mp3"}, {"time": "12:30", "file": "a.mp3"}]),
+                                        Path("/nonexistent-pack"), 1000.0)
+    assert len(errors) == 2 and all("usable numeric `time`" in e for e in errors)
+    assert explained == []  # neither cue reaches the box's filter
+
+
+def test_music_cue_with_a_non_numeric_span_is_an_error_not_a_crash(tmp_path: Path) -> None:
+    creative = {"audio": {"music_schedule": [{"track": 1, "start": "0:00", "end": 100}]}}
+    errors, _ = lc.check_music(creative, tmp_path, None, 100.0)
+    assert any("start/end must be numbers" in e for e in errors)
+
+
+def test_stand_in_failure_becomes_an_error_in_the_report(tmp_path: Path) -> None:
+    from videotool.creative.lint import lint
+
+    creative = tmp_path / "creative.yaml"
+    creative.write_text("project: {title: X}\n", encoding="utf-8")
+    empty = tmp_path / "episode"
+    empty.mkdir()
+    report = lint(str(empty), creative)   # no narration audio at the root
+    assert report.errors and "could not build the stand-in" in report.errors[0]
+
+
+def test_stand_in_copies_every_scene_plan_name_find_scene_plan_accepts() -> None:
+    from videotool.creative.standin import is_text
+
+    for name in ("BT55_scene_anchors.md", "BT55_scene_anchors_v2.md", "scene-anchors.md",
+                 "scene_plan.md", ".work/scene-plan.md", "chap55_vi_qa.srt", "chap55_vi_qa.txt"):
+        assert is_text(name), name
+    for name in ("Image/01.png", "voice.wav", "notes.md", "Kịch bản/x_scene_anchors.md"):
+        assert not is_text(name), name

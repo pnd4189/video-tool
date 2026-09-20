@@ -104,7 +104,11 @@ def lint(
     job = work / "job"
     try:
         with _stdout_to_stderr():
-            standin = build_standin(source, job)
+            try:
+                standin = build_standin(source, job)
+            except (ValueError, OSError, subprocess.SubprocessError) as exc:
+                report.errors.append(f"could not build the stand-in of {source}: {exc}")
+                return report
             report.warnings += standin.warnings
             try:
                 data = _prepare(job, creative, Path(sfx_library), Path(overlay_library))

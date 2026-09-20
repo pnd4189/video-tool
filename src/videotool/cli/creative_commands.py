@@ -125,3 +125,8 @@ def sfx_pin_command(
                    + (f"  ({reason})" if reason else ""))
     typer.echo(f"wrote {len(pinned)} cue(s) to {creative}"
                + ("" if kept_comments else " (file re-dumped: comments were not preserved)"))
+    written = yaml.safe_load(creative.read_text(encoding="utf-8")) or {}
+    if pack and not ((written.get("enhance") or {}).get("sfx") or {}).get("pack"):
+        # The in-place rewrite touches only the `cues:` block, so a --pack given here is not saved.
+        typer.echo(f"WARNING creative.yaml has no enhance.sfx.pack — add `pack: {pack}` or the render "
+                   "infers the pack and the KEEP/DROP list above may not hold", err=True)
