@@ -137,6 +137,10 @@ def _guards(runner: Runner, shared: str, runtime: str, slug: str, title: str, re
         problems.append(f"không ls-remote được {GITHUB_REMOTE} (riêng tư? mạng?) — box sẽ chết lúc pip")
     elif gh != local:
         problems.append(f"main local ({local}) ≠ origin/main ({gh}) — fetch/push trước khi stage")
+    unmerged = remote.unmerged_box_code(runner)
+    if unmerged:
+        problems.append(f"{len(unmerged)} file code chưa lên main ({', '.join(unmerged[:3])}…) — box cài "
+                        "videotool từ main nên sẽ chạy code CŨ so với bản lint vừa chạy; push trước")
 
     for module in CLOUD_MODULES:
         name = Path(module).name

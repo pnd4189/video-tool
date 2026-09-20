@@ -56,6 +56,7 @@ def _patch(monkeypatch, tmp_path, report=None):
     monkeypatch.setattr(stage_mod.remote, "md5_of_blob", lambda runner, git_path: OK_MD5)
     monkeypatch.setattr(stage_mod.remote, "github_head", lambda runner: "abc1234")
     monkeypatch.setattr(stage_mod.remote, "local_origin_main", lambda runner: "abc1234")
+    monkeypatch.setattr(stage_mod.remote, "unmerged_box_code", lambda runner: [])
 
 
 def test_tpu_writes_the_tpu_config_without_repo_ref(tmp_path, monkeypatch):
@@ -205,3 +206,10 @@ def test_dry_run_reports_a_blocked_stage_with_a_failing_exit_code(tmp_path, monk
     out = capsys.readouterr().out
     assert "BLOCK" in out and "BỊ CHẶN" in out
     assert not runner.seen("rclone", "copyto")
+
+
+def test_code_the_box_runs_but_main_does_not_have_blocks(tmp_path, monkeypatch):
+    _patch(monkeypatch, tmp_path)
+    monkeypatch.setattr(stage_mod.remote, "unmerged_box_code",
+                        lambda runner: ["src/videotool/creative/lint.py"])
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=_ok_runner()) == 1

@@ -111,6 +111,19 @@ def local_origin_main(runner: Runner) -> str | None:
         return None
 
 
+def unmerged_box_code(runner: Runner) -> list[str]:
+    """Files the render box runs (`src/`, `Colab/`) that differ between HEAD and origin/main.
+
+    The box pip-installs videotool from GitHub `main`, so anything still sitting on a branch is
+    code the lint used and the render will not have."""
+    code, out = runner(["git", "-C", str(Path(__file__).resolve().parents[3]),
+                        "diff", "--name-only", "origin/main...HEAD", "--", "src", "Colab"],
+                       timeout=60)
+    if code != 0:
+        return []
+    return [line for line in out.decode("utf-8", errors="replace").splitlines() if line.strip()]
+
+
 def count_clips(runner: Runner, checkpoint: str) -> int:
     from videotool.cloud.config import clip_dir
 
