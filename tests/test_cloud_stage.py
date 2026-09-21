@@ -51,7 +51,7 @@ def _ok_runner() -> FakeRunner:
 
 def _patch(monkeypatch, tmp_path, report=None):
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-    monkeypatch.setattr(stage_mod, "lint", lambda source, path: report or FakeLint())
+    monkeypatch.setattr(stage_mod, "lint", lambda source, path, **kw: report or FakeLint())
     # identical md5s everywhere: patch md5_of_blob to the fixture value
     monkeypatch.setattr(stage_mod.remote, "md5_of_blob", lambda runner, git_path: OK_MD5)
     monkeypatch.setattr(stage_mod.remote, "github_head", lambda runner: "abc1234")
@@ -213,3 +213,125 @@ def test_code_the_box_runs_but_main_does_not_have_blocks(tmp_path, monkeypatch):
     monkeypatch.setattr(stage_mod.remote, "unmerged_box_code",
                         lambda runner: ["src/videotool/creative/lint.py"])
     assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=_ok_runner()) == 1
+
+
+def test_the_last_line_says_whether_it_staged(tmp_path, monkeypatch, capsys):
+    _patch(monkeypatch, tmp_path)
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=_ok_runner()) == 0
+    assert capsys.readouterr().out.rstrip().splitlines()[-1].startswith("KẾT QUẢ: ĐÃ STAGE binh-thien-chap55 lúc ")
+    runner = _ok_runner()
+    runner.responses[("kaggle", "kernels", "status")] = (0, 'k has status "KernelWorkerStatus.RUNNING"')
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=runner) == 1
+    assert capsys.readouterr().out.rstrip().splitlines()[-1].startswith("KẾT QUẢ: CHƯA STAGE")
+
+
+def test_a_second_stage_of_the_same_episode_waits_its_turn(tmp_path, monkeypatch, capsys):
+    import fcntl
+    import hashlib
+
+    _patch(monkeypatch, tmp_path)
+    run_state.ensure_dir()
+    lock = run_state.state_dir() / f".stage-{hashlib.sha1(SOURCE.encode('utf-8')).hexdigest()[:12]}.lock"
+    with open(lock, "w", encoding="utf-8") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        runner = _ok_runner()
+        assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=runner) == 1
+        assert "đang chạy" in capsys.readouterr().out and runner.calls == []
+
+
+def test_what_was_linted_is_what_gets_uploaded(tmp_path, monkeypatch):
+    _patch(monkeypatch, tmp_path)
+    creative = _creative(tmp_path)
+    linted = creative.read_text(encoding="utf-8")
+
+    def lint_then_edit(source, path, **kw):
+        creative.write_text("project: {title: EDITED MID-STAGE}\n", encoding="utf-8")  # agent edits meanwhile
+        return FakeLint()
+
+    monkeypatch.setattr(stage_mod, "lint", lint_then_edit)
+    runner = _ok_runner()
+    assert stage_mod.stage(SOURCE, creative, "tpu", runner=runner) == 0
+    assert runner.uploads[f"{SHARED}/creative/binh-thien-chap55.yaml"] == linted
+
+
+def test_a_mount_path_is_staged_as_its_gdrive_remote(tmp_path, monkeypatch):
+    _patch(monkeypatch, tmp_path)
+    mount = tmp_path / "gdrive"
+    episode = mount / "series" / "Chap 55"
+    episode.mkdir(parents=True)
+    monkeypatch.setenv("VIDEOTOOL_GDRIVE_MOUNT", str(mount))
+    runner = _ok_runner()
+    assert stage_mod.stage(str(episode), _creative(tmp_path), "tpu", runner=runner) == 0
+    config = json.loads(runner.uploads[f"{SHARED}/render_job.tpu.json"])
+    assert config["source"] == "gdrive:series/Chap 55"
+    assert config["output"] == "gdrive:series/Chap 55/outputs"
+
+
+def test_a_local_folder_off_the_mount_cannot_be_staged(tmp_path, monkeypatch, capsys):
+    _patch(monkeypatch, tmp_path)
+    monkeypatch.setenv("VIDEOTOOL_GDRIVE_MOUNT", str(tmp_path / "gdrive"))
+    local = tmp_path / "cache" / "Chap 55"
+    local.mkdir(parents=True)
+    assert stage_mod.stage(str(local), _creative(tmp_path), "tpu", runner=_ok_runner()) == 2
+    assert "gdrive:" in capsys.readouterr().out
+
+
+def _with_pinned_checkpoint(title: str) -> FakeRunner:
+    runner = _ok_runner()
+    runner.responses[("rclone", "cat", f"{SHARED}/checkpoints/binh-thien-chap55/job.yaml")] = \
+        (0, f'project:\n  title: "{title}"\n')
+    runner.responses[("rclone", "purge")] = (0, "")
+    return runner
+
+
+def test_a_pinned_checkpoint_of_this_episode_needs_resume_or_fresh(tmp_path, monkeypatch, capsys):
+    _patch(monkeypatch, tmp_path)
+    same = "Bình Thiên Sách Tập 55: Hook"
+    runner = _with_pinned_checkpoint(same)
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=runner) == 1
+    assert "RESUME" in capsys.readouterr().out and not runner.seen("rclone", "copyto")
+
+    runner = _with_pinned_checkpoint(same)
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", resume=True, runner=runner) == 0
+    assert not runner.seen("rclone", "purge")
+
+    runner = _with_pinned_checkpoint(same)
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", fresh=True, runner=runner) == 0
+    assert runner.seen("rclone", "purge", f"{SHARED}/checkpoints/binh-thien-chap55")
+    purge_at = next(i for i, c in enumerate(runner.calls) if c[:2] == ["rclone", "purge"])
+    first_write = next(i for i, c in enumerate(runner.calls) if c[:2] == ["rclone", "copyto"])
+    assert purge_at < first_write   # the old pin is gone before the new creative lands
+
+
+def test_fresh_never_purges_another_episodes_checkpoint(tmp_path, monkeypatch):
+    _patch(monkeypatch, tmp_path)
+    runner = _with_pinned_checkpoint("Tập KHÁC hoàn toàn")
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", fresh=True, runner=runner) == 1
+    assert not runner.seen("rclone", "purge")
+
+
+def test_resume_and_fresh_together_is_bad_usage(tmp_path, monkeypatch):
+    _patch(monkeypatch, tmp_path)
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", resume=True, fresh=True, runner=_ok_runner()) == 2
+
+
+def test_a_single_quoted_title_in_the_pinned_job_is_still_this_episode(tmp_path, monkeypatch, capsys):
+    """The box's yaml.safe_dump quotes a title holding ': ' with single quotes (ĐS22 checkpoint)."""
+    _patch(monkeypatch, tmp_path)
+    runner = _ok_runner()
+    runner.responses[("rclone", "cat", f"{SHARED}/checkpoints/binh-thien-chap55/job.yaml")] = \
+        (0, "project:\n  title: 'Bình Thiên Sách Tập 55: Hook'\n")
+    runner.responses[("rclone", "purge")] = (0, "")
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=runner) == 1
+    out = capsys.readouterr().out
+    assert "RESUME" in out and "tập khác" not in out
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", fresh=True, runner=runner) == 0
+
+
+def test_a_failed_drive_write_still_ends_with_the_result_line(tmp_path, monkeypatch, capsys):
+    _patch(monkeypatch, tmp_path)
+    runner = _ok_runner()
+    runner.responses[("rclone", "copyto")] = (1, "")   # the upload itself fails
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=runner) == 1
+    last = capsys.readouterr().out.rstrip().splitlines()[-1]
+    assert last.startswith("KẾT QUẢ: CHƯA STAGE — một lệnh ghi Drive lỗi")

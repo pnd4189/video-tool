@@ -16,7 +16,8 @@ def stage(
     runtime: str = typer.Option("tpu", "--runtime", help="gpu | tpu"),
     slug: str | None = typer.Option(None, "--slug"),
     scene_workers: int | None = typer.Option(None, "--scene-workers"),
-    resume: bool = typer.Option(False, "--resume", help="Accept an existing checkpoint of this slug."),
+    resume: bool = typer.Option(False, "--resume", help="Continue the pinned job.yaml already in this slug's checkpoint."),
+    fresh: bool = typer.Option(False, "--fresh", help="Delete this slug's own checkpoint first so the new creative is used."),
     dry_run: bool = typer.Option(False, "--dry-run"),
     template: Path | None = typer.Option(None, "--template", exists=True, dir_okay=False,
                                          help="Description template to stage into the source folder."),
@@ -24,7 +25,8 @@ def stage(
     """Lint the creative, check every guard, upload creative+config, and mark the run staged."""
     from videotool.cloud.stage import stage as run_stage
 
-    raise typer.Exit(run_stage(source, creative, runtime, slug, scene_workers, resume, dry_run, template))
+    raise typer.Exit(run_stage(source, creative, runtime, slug, scene_workers, resume, dry_run, template,
+                               fresh=fresh))
 
 
 @cloud_app.command()

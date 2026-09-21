@@ -79,6 +79,13 @@ def delete_remote_file(runner: Runner, remote: str) -> None:
     rclone_text(runner, ["delete", remote])
 
 
+def purge_checkpoint(runner: Runner, shared: str, slug: str) -> None:
+    """Delete one episode's own checkpoint folder under the shared root — never anything else."""
+    if not slug or "/" in slug or slug in (".", "..") or ":" in slug:
+        raise RemoteError(f"refusing to purge checkpoint for slug {slug!r}")
+    rclone_text(runner, ["purge", f"{shared}/checkpoints/{slug}"])
+
+
 def md5_of_blob(runner: Runner, git_path: str) -> str:
     code, out = runner(["git", "-C", str(Path(__file__).resolve().parents[3]),
                         "show", f"origin/main:{git_path}"], timeout=60)

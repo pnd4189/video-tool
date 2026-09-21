@@ -17,6 +17,16 @@ def shared_root() -> str:
     return os.environ.get("VIDEOTOOL_SHARED_ROOT", "gdrive:_VIDEOTOOL_SHARED")
 
 
+def gdrive_mount() -> Path:
+    """Where the `gdrive:` remote is mounted on this machine (`rclone mount gdrive: <here>`)."""
+    return Path(os.environ.get("VIDEOTOOL_GDRIVE_MOUNT", "/home/dung/cloud/gdrive")).resolve()
+
+
+def gdrive_remote() -> str:
+    """The rclone remote the mount shows — the box reads the same files through it."""
+    return os.environ.get("VIDEOTOOL_GDRIVE_REMOTE", "gdrive:")
+
+
 def config_name(runtime: str) -> str:
     return {"gpu": "render_job.json", "tpu": "render_job.tpu.json"}[runtime]
 
