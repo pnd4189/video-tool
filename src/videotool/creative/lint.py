@@ -20,6 +20,7 @@ from pathlib import Path
 import yaml
 
 from videotool.creative import lint_checks as lc
+from videotool.creative import lint_shape
 from videotool.creative.apply import OVERLAY_LIBRARY, SFX_LIBRARY, apply_creative, infer_pack
 from videotool.creative.parallax import keep_title_cards_static, story_stills
 from videotool.creative.prepare import prepare_job, read_job, run_cli, write_job
@@ -59,14 +60,21 @@ def _rel(job_dir: Path, value: str | None) -> str | None:
     if not value:
         return None
     path = Path(value)
-    return path.relative_to(job_dir).as_posix() if path.is_absolute() else path.as_posix()
+    if not path.is_absolute():
+        return path.as_posix()
+    try:
+        return path.relative_to(job_dir).as_posix()
+    except ValueError:  # outside the job folder: check_inputs reports it
+        return None
 
 
 def _description(job_dir: Path, data: dict, cta_s: float) -> str | None:
     from videotool.package.youtube import format_chapters_block, render_description_template
     from videotool.render.cta_compose import offset_chapters
 
-    template = next(iter(sorted(job_dir.glob("*_DESCRIPTION_TEMPLATE.txt"))), None)
+    named = (data.get("inputs") or {}).get("description_template")  # the box's choice, first
+    template = job_dir / named if named and (job_dir / named).is_file() else \
+        next(iter(sorted(job_dir.glob("*_DESCRIPTION_TEMPLATE.txt"))), None)
     if template is None:
         return None
     chapters_path = job_dir / "outputs" / "chapters.json"
@@ -97,7 +105,10 @@ def lint(
     sfx_library: Path = SFX_LIBRARY,
     overlay_library: Path = OVERLAY_LIBRARY,
     keep: bool = False,
+    template: Path | None = None,
 ) -> LintReport:
+    """`template` is the description template about to be staged: the preview must use it, not
+    whichever older template the source folder still holds."""
     report = LintReport()
     creative = yaml.safe_load(Path(creative_path).read_text(encoding="utf-8")) or {}
     work = Path(tempfile.mkdtemp(prefix="videotool-lint-"))
@@ -110,6 +121,12 @@ def lint(
                 report.errors.append(f"could not build the stand-in of {source}: {exc}")
                 return report
             report.warnings += standin.warnings
+            if template is not None:
+                shutil.copy(template, job / Path(template).name)
+                if Path(template).name not in standin.files:
+                    standin.files.append(Path(template).name)
+            report.add(lint_shape.check_keys(creative))
+            report.add(lint_shape.check_inputs(creative, standin.files))
             try:
                 data = _prepare(job, creative, Path(sfx_library), Path(overlay_library))
             except (CreativeError, RuntimeError, subprocess.CalledProcessError) as exc:
@@ -148,6 +165,10 @@ def _run_checks(report, source, job, creative, data, standin, cta, series_path, 
         (entry or {}).get("sfx_pack") or infer_pack(job)
     sfx_errors, sfx_warnings, explained = lc.check_sfx(creative, sfx_library / pack, end_s)
     report.add((sfx_errors, sfx_warnings))
+    chapters_file = job / "outputs" / "chapters.json"
+    chapter_list = json.loads(chapters_file.read_text(encoding="utf-8")) if chapters_file.exists() else []
+    spread_errors, _, per_chapter = lc.check_sfx_spread(explained, chapter_list, end_s)
+    report.add((spread_errors, []))
     report.add(lc.check_cjk(creative, report.description or ""))
     if registry is not None:
         report.add(lc.check_series(creative, entry))
@@ -159,7 +180,6 @@ def _run_checks(report, source, job, creative, data, standin, cta, series_path, 
 
     board = data.get("storyboard") or []
     videos = [s for s in board if s.get("video")]
-    chapters = job / "outputs" / "chapters.json"
     report.summary.update({
         "source": source,
         "series": (entry or {}).get("id"),
@@ -171,7 +191,8 @@ def _run_checks(report, source, job, creative, data, standin, cta, series_path, 
                    "parallax": sum(1 for s in videos if str(s["video"]).startswith("Parallax/")),
                    "video": len(videos)},
         "music_cues": len(((data.get("audio") or {}).get("music_schedule")) or []),
-        "sfx": {"authored": len(explained), "kept": sum(1 for _, r in explained if r is None), "pack": pack},
-        "chapters": len(json.loads(chapters.read_text(encoding="utf-8"))) if chapters.exists() else 0,
+        "sfx": {"authored": len(explained), "kept": sum(1 for _, r in explained if r is None), "pack": pack,
+                "per_chapter": per_chapter},
+        "chapters": len(chapter_list),
         "description_chars": len((report.description or "").split("==== TAGS")[0].rstrip()),
     })

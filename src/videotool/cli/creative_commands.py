@@ -67,11 +67,13 @@ def lint_command(
     preview: Path | None = typer.Option(None, "--preview", help="Write the description preview here."),
     json_output: bool = typer.Option(False, "--json"),
     keep: bool = typer.Option(False, "--keep", help="Keep the stand-in job for inspection."),
+    template: Path | None = typer.Option(None, "--template", exists=True, dir_okay=False,
+                                         help="Description template you will stage (preview uses it)."),
 ) -> None:
     """Replay the render box's preparation on a stand-in of the episode and report problems."""
     from videotool.creative.lint import lint
 
-    report = lint(source, creative, series, keep=keep)
+    report = lint(source, creative, series, keep=keep, template=template)
     if preview and report.description is not None:
         preview.write_text(report.description, encoding="utf-8")
     if json_output:

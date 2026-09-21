@@ -6,6 +6,7 @@ from pathlib import Path
 
 AUDIO_EXTS = (".wav", ".mp3", ".m4a")
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+GENERATED_DIRS = ("outputs", ".videotool")  # made by a render, never a title card
 
 
 def detect_voice(job_dir: Path) -> Path:
@@ -37,7 +38,9 @@ def title_card_candidates(job_dir: Path) -> tuple[list[Path], list[Path]]:
     """(thumbnail candidates, ending candidates) by filename/subfolder, anywhere under the job."""
     thumbs, ends = [], []
     for p in Path(job_dir).rglob("*"):
-        if p.suffix.lower() not in IMAGE_EXTS:
+        # A re-render stages the previous run's outputs/ too; its thumbnail-1280x720.jpg made a
+        # second "thumb" and cost ĐẠO SĨ Chap 22 its intro card.
+        if p.suffix.lower() not in IMAGE_EXTS or p.relative_to(job_dir).parts[0] in GENERATED_DIRS:
             continue
         name = (p.parent.name + " " + p.name).lower()
         if "thumb" in name:

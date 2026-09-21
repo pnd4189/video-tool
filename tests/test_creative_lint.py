@@ -137,3 +137,48 @@ def test_stand_in_copies_every_scene_plan_name_find_scene_plan_accepts() -> None
         assert is_text(name), name
     for name in ("Image/01.png", "voice.wav", "notes.md", "Kịch bản/x_scene_anchors.md"):
         assert not is_text(name), name
+
+
+def test_sfx_spread_reuse_and_missing_pack() -> None:
+    kept = lambda t, f: ({"time": t, "file": f}, None)  # noqa: E731
+    explained = [kept(100, "a.mp3"), kept(200, "a.mp3"), kept(300, "a.mp3"), kept(1300, "b.mp3")]
+    chapters = [{"start": 0, "title": "Chương 1"}, {"start": 1000, "title": "Chương 2"},
+                {"start": 2000, "title": "Chương 3"}]
+    errors, _, counts = lc.check_sfx_spread(explained, chapters, 3000.0)
+    assert counts == [3, 1, 0]
+    assert any("a.mp3 is used 3 times" in e for e in errors)
+    assert any("Chương 3" in e for e in errors) and not any("Chương 2" in e for e in errors)
+    short = [{"start": 0, "title": "A"}, {"start": 2900, "title": "B"}]   # B is under 5 min
+    assert not any("B" in e for e in lc.check_sfx_spread([kept(100, "x.mp3")], short, 3000.0)[0])
+
+
+def test_sfx_without_a_pack_and_an_episode_without_sfx() -> None:
+    errors, _, _ = lc.check_sfx({"enhance": {"sfx": {"cues": [{"time": 100.0, "file": "a.mp3"}]}}},
+                                Path("/nonexistent/dao-si"), 1000.0)
+    assert any("pack: dao-si" in e for e in errors)
+    assert lc.check_sfx({}, Path("/p"), 1000.0)[1] == ["no SFX cues — audio-story episodes carry one-shot "
+                                                         "SFX by default"]
+
+
+def test_title_cards_ignore_a_previous_render_outputs_folder(tmp_path: Path) -> None:
+    from videotool.creative.detect import detect_intro_ending_cta
+
+    (tmp_path / "Ảnh bìa Thumbnail-Intro").mkdir()
+    (tmp_path / "Ảnh bìa Thumbnail-Intro" / "22.jpg").write_bytes(b"")
+    (tmp_path / "outputs").mkdir()
+    (tmp_path / "outputs" / "thumbnail-1280x720.jpg").write_bytes(b"")
+    data: dict = {}
+    detect_intro_ending_cta(tmp_path, data)
+    assert data["inputs"]["intro_image"] == "Ảnh bìa Thumbnail-Intro/22.jpg"
+
+
+def test_input_overrides_must_stay_inside_the_episode(tmp_path: Path) -> None:
+    import pytest
+
+    from videotool.creative.prepare import apply_input_overrides
+    from videotool.creative.rules import CreativeError
+
+    outside = tmp_path / "elsewhere.txt"
+    outside.write_text("x", encoding="utf-8")   # exists on this machine, not on the render box
+    with pytest.raises(CreativeError, match="inside the episode folder"):
+        apply_input_overrides(tmp_path, {}, {"description_template": str(outside)})

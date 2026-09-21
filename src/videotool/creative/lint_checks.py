@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 from videotool.creative.checks import MUSIC_SUFFIXES
@@ -14,6 +15,8 @@ from videotool.creative.series import metadata_mismatches, title_status
 CJK = re.compile(r"[一-鿿]")
 DESCRIPTION_LIMIT = 5000
 GAP_TOLERANCE_S = 1.0
+SFX_MAX_REUSE = 2            # uses of one SFX file per episode (user rule, 2026-09-21)
+SFX_CHAPTER_MIN_S = 300.0    # a chapter shorter than this may go without a cue
 Found = tuple[list[str], list[str]]
 
 
@@ -58,9 +61,15 @@ def check_description(description: str | None) -> Found:
 
 
 def check_sfx(creative: dict, pack_dir: Path, end_s: float) -> tuple[list[str], list[str], list[tuple[dict, str | None]]]:
-    cues = (((creative.get("enhance") or {}).get("sfx") or {}).get("cues")) or []
+    sfx = ((creative.get("enhance") or {}).get("sfx") or {})
+    cues = sfx.get("cues") or []
     if not cues:
-        return [], [], []
+        return [], ["no SFX cues — audio-story episodes carry one-shot SFX by default"], []
+    pack_error = []
+    if not sfx.get("pack"):
+        # The render box does not read series.yaml: without a pack it guesses one from keywords.
+        pack_error = [f"enhance.sfx.pack is missing — write `pack: {pack_dir.name}` so the render box "
+                      "does not have to guess the pack"]
     available = {p.name for p in pack_dir.glob("*")} if pack_dir.is_dir() else set()
     raw, unusable = [], []
     for cue in cues:
@@ -72,11 +81,30 @@ def check_sfx(creative: dict, pack_dir: Path, end_s: float) -> tuple[list[str], 
             continue
         raw.append({"time": time_s, "file": Path(str(cue.get("file", ""))).name, "gain_db": cue.get("gain_db")})
     explained = explain_sfx_cues(raw, available, end_s)
-    errors = unusable + [f"SFX {c['file']} @ {c['time']:.2f}s: not in pack {pack_dir.name}" for c, r in explained
-                         if r == "file not in the SFX pack"]
+    errors = pack_error + unusable + [f"SFX {c['file']} @ {c['time']:.2f}s: not in pack {pack_dir.name}"
+                                      for c, r in explained if r == "file not in the SFX pack"]
     warnings = [f"SFX {c['file']} @ {c['time']:.2f}s will be DROPPED: {r}" for c, r in explained
                 if r and r != "file not in the SFX pack"]
     return errors, warnings, explained
+
+
+def check_sfx_spread(explained: list[tuple[dict, str | None]], chapters: list[dict], end_s: float) -> tuple[list[str], list[str], list[int]]:
+    """Kept cues per chapter, a chapter left without SFX, a file used too often.
+
+    ĐẠO SĨ Chap 22 kept every cue inside the first 12 minutes of 82 and nothing flagged it; the
+    per-file limit is the user's rule for every episode (2026-09-21)."""
+    kept = [c for c, reason in explained if reason is None]
+    errors = [f"SFX {name} is used {n} times — at most {SFX_MAX_REUSE} per episode"
+              for name, n in Counter(c["file"] for c in kept).items() if n > SFX_MAX_REUSE]
+    spans = sorted((float(c["start"]), str(c.get("title", ""))) for c in chapters)
+    counts: list[int] = []
+    for i, (start, title) in enumerate(spans):
+        stop = spans[i + 1][0] if i + 1 < len(spans) else end_s
+        counts.append(sum(1 for c in kept if start <= c["time"] < stop))
+        if kept and counts[-1] == 0 and stop - start >= SFX_CHAPTER_MIN_S:
+            errors.append(f"no SFX kept in {title or f'chapter {i + 1}'} ({start:.0f}s–{stop:.0f}s) — "
+                          "spread the cues over the whole episode")
+    return errors, [], counts
 
 
 def _track_count(job_dir: Path, music: str | None) -> list[str]:

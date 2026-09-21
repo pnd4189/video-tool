@@ -79,6 +79,8 @@ def apply_input_overrides(job_dir: Path, data: dict, overrides: dict) -> None:
     """Job-relative input overrides from creative.yaml, for what the filename heuristics cannot
     resolve — e.g. a folder holding several `thumb*` candidates leaves `intro_image` unset."""
     for key, value in overrides.items():
+        if Path(str(value)).is_absolute() or ".." in Path(str(value)).parts:
+            raise CreativeError(f"creative inputs.{key} '{value}' must be a path inside the episode folder")
         if not (job_dir / value).exists():
             raise CreativeError(f"creative inputs.{key} '{value}' does not exist in the job folder")
         data.setdefault("inputs", {})[key] = value
