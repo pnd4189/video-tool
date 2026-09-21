@@ -130,3 +130,33 @@ def test_the_module_entry_point_never_fails(capsys, monkeypatch) -> None:
     monkeypatch.setattr("sys.stdin", io.StringIO("not json at all"))
     assert guard.main() == 0
     assert json.loads(capsys.readouterr().out)["decision"] == "ask"
+
+
+REMOTE_CHAP = "gdrive:1. YOUTUBE AUDIO/2. ĐẠO SĨ/1. BẢN DỊCH/Chap 22"
+
+
+@pytest.mark.parametrize("command", [
+    f'rclone copyto plans/scratch-x/T.txt "{REMOTE_CHAP}/Dao_Si_Quen_0045_0048_DESCRIPTION_TEMPLATE.txt"',
+    f'rclone copy /tmp/x "{REMOTE_CHAP}"',
+    'rclone copyto /tmp/render_job.json gdrive:_VIDEOTOOL_SHARED/render_job.json',
+    'rclone copy Colab gdrive:_VIDEOTOOL_SHARED',
+    'rclone copyurl https://example.com/a.mp3 "gdrive:1. YOUTUBE AUDIO/x/a.mp3"',
+])
+def test_remote_writes_outside_an_outputs_folder_are_denied(command: str) -> None:
+    result = guard.decide(_cmd(command))
+    assert result["decision"] == "deny" and "outputs" in result["reason"]
+
+
+@pytest.mark.parametrize("command", [
+    f'rclone copy "{STAGE}/outputs" "{REMOTE_CHAP}/outputs"',
+    f'rclone copy "{STAGE}/outputs" "{REMOTE_CHAP}/Output" --transfers 8',
+    f'rclone copy "{REMOTE_CHAP}" "{STAGE}" --transfers 8 --fast-list',
+    'rclone copyurl https://example.com/a.mp3 /tmp/a.mp3',
+])
+def test_publishing_and_staging_copies_still_pass(command: str) -> None:
+    assert guard.decide(_cmd(command))["decision"] == "allow"
+
+
+def test_a_dotdot_out_of_outputs_is_still_denied() -> None:
+    cmd = _cmd(f'rclone copyto x.txt "{REMOTE_CHAP}/outputs/../Dao_Si_Quen_0045_0048_DESCRIPTION_TEMPLATE.txt"')
+    assert guard.decide(cmd)["decision"] == "deny"

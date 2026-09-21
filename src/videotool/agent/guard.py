@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 import re
 import shlex
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 WRITE_TOOLS = ("write_to_file", "replace_file_content", "multi_replace_file_content")
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -27,8 +27,8 @@ DEFAULT_MOUNT = "/home/dung/cloud/gdrive"
 GIT_DENY = {"commit", "push", "reset", "checkout", "switch", "restore", "rebase", "merge", "stash",
             "clean", "rm", "mv", "cherry-pick", "revert", "tag", "am", "apply"}
 GIT_GLOBAL_WITH_VALUE = ("-C", "--git-dir", "--work-tree", "--namespace", "-c")
-# rclone subcommands that delete or overwrite. `copy`/`copyto`/`copyurl` only ADD files, and the
-# local render flow publishes an episode with `rclone copy` — blocking those would break the job.
+# rclone subcommands that delete or overwrite. `copy`/`copyto`/`copyurl` pass when they write to a
+# local folder or into an episode's outputs/ (how the local flow publishes); see _rclone_denial.
 RCLONE_DENY = {"delete", "deletefile", "purge", "move", "moveto", "sync", "rmdir", "rmdirs",
                "cleanup", "dedupe"}
 WATCHD_DENY = {"stop", "disable", "mask", "kill"}
@@ -119,11 +119,20 @@ def _rclone_denial(tokens: list[str], cwd: Path) -> str | None:
         return (f"`rclone {rest[0]}` xoá hoặc ghi đè ở đích — Drive và mount là tư liệu gốc. Chỉ dùng "
                 "`rclone copy`/`copyto` (chỉ thêm file) hoặc các lệnh đọc.")
     if rest[0] in ("copy", "copyto", "copyurl"):
-        local = [t for t in rest[1:] if not REMOTE_SPEC.match(t) and _looks_like_path(t, cwd)]
-        for raw in local[-1:]:  # the destination is the last path argument
-            reason = write_denial(_resolve(raw, cwd))
-            if reason:
-                return reason
+        paths = [t for t in rest[1:] if REMOTE_SPEC.match(t) or _looks_like_path(t, cwd)]
+        dest = paths[-1] if len(paths) >= 2 else None  # the destination is the last path argument
+        if dest is None:
+            return None
+        if REMOTE_SPEC.match(dest):
+            # Copy only adds files, but onto an existing name it overwrites: agy replaced an
+            # episode's source template this way (ĐS22). Publishing is the one remote write it makes.
+            where = PurePosixPath(dest.split(":", 1)[1])
+            if ".." in where.parts or not {"outputs", "Output"} & set(where.parts):
+                return (f"`rclone {rest[0]}` ghi lên Drive ngoài outputs/ ({dest}) — tư liệu gốc và "
+                        "_VIDEOTOOL_SHARED không phải chỗ agent ghi. Publish vào <tập>/outputs hoặc "
+                        "<tập>/Output; cần ghi chỗ khác thì dừng lại hỏi user.")
+            return None
+        return write_denial(_resolve(dest, cwd))
     return None
 
 
