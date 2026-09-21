@@ -69,7 +69,8 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
 - **Music schedule + default SFX**: `audio.music_schedule` places a track per story-mood span (unset →
   concat + loop); `enhance.sfx` mixes one-shot SFX after render (`videotool sfx`, `-c:v copy`, not
   ducked, `amix normalize=0` + limiter), default ON, auto-burn, no montage. Beds deferred.
-  *(2026-07-03.)* → sfx-music.md
+  *(2026-07-03.)* Each SFX file **≤ 2× per episode**, every ≥ 5-min chapter keeps a cue — lint
+  blocks the stage otherwise *(2026-09-21)*. → sfx-music.md
 - **Tier full opts into overlays** (`--enhance full`: burn captions + bundled particles/progress/
   waveform, one re-encode). Audio-story jobs use per-feature `enhance`, not `--enhance full`.
 - **Motion amplitude 0.30, pan zoom 1.22** (`render/video_filters.py`). Don't lower without asking.
@@ -112,15 +113,16 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
   same rules before staging). Reverses the 2026-07-11 "local flow byte-unchanged, cloud is a
   parallel system": the cloud copy silently lost the intro/ending cards from ĐS25 to ĐS38 while
   local was right. *(2026-09-19.)*
-- **agy renders with the NEWEST Gemini Pro model at effort High** — checked via `agy models` at
-  each run; today that is `gemini-3.1-pro-high` (shadow test BT54: Pro đạt 5/5 tiêu chí, Flash loại
-  — copy + dở việc; Opus chỉ dự phòng vì chạy bằng quota Anthropic). *(2026-09-19.)*
+- **agy renders with the NEWEST Gemini Pro model at effort High** (`agy models`; today
+  `gemini-3.1-pro-high`, BT54 shadow test: Pro 5/5, Flash loại). *(2026-09-19.)* Under review since
+  ĐS22 *(2026-09-21)*: Gemini invented lint/stage results; Claude Opus 4.6 did its fixes right, on the
+  Antigravity quota (not Anthropic's — the old reason was wrong). Next episode: Opus from scratch.
 - **One knowledge source in the repo** (this file + `.agents/skills/`); per-CLI memories only point
   here. Render-only agents work under the guard above. *(2026-09-19.)*
 
 ## Verification commands
 
-- `.venv/bin/python -m pytest -q` — full suite (283+ must pass)
+- `.venv/bin/python -m pytest -q` — full suite (501+ must pass)
 - `.venv/bin/videotool doctor` — ffmpeg + environment check
 - `ffprobe -v error -show_entries stream=codec_name,width,height -of csv=p=0 <out.mp4>` — h264 + aac + 1920×1080
 
@@ -134,11 +136,9 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
 - Render branches at 40 scenes (`render.max_inline_scenes`): above it the segmented path renders
   scene clips in parallel (one per core, cap 8, `VIDEOTOOL_SCENE_WORKERS`) and bakes the overlay per scene.
 - Every subprocess capture uses `errors="replace"` — Vietnamese bytes cannot crash a run (2026-07-13).
-- The Google CLI is Antigravity (`agy`); Gemini CLI is discontinued. Headless `agy -p` runs in an
-  empty default project and loads NO workspace skills — pass `--project /home/dung/VIBE_CODING/video-tool`
-  (verified 2026-09-19 with `agy -p "/skills"`); headless also ignores `permissions.allow`, needs
-  `--dangerously-skip-permissions`, and exits while a command still runs in the background, so real
-  renders run in interactive agy.
+- The Google CLI is Antigravity (`agy`); Gemini CLI is discontinued. Headless `agy -p` loads no workspace
+  skills without `--project /home/dung/VIBE_CODING/video-tool`, ignores `permissions.allow` (use
+  `--dangerously-skip-permissions`) and exits mid-command — renders run in interactive agy (2026-09-19/20).
 - Key files: `src/videotool/core/{job_spec,storyboard,services}.py`, `render/{video_filters,segmented,
   executor,sfx_mix}.py`, `cli/main.py`; cloud: `Colab/{cloud_director,cloud_render_runner,videotool_cloud}.py`
   and the notebooks `Colab/videotool-render{,-tpu}.ipynb`.

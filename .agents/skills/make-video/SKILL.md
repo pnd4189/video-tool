@@ -62,7 +62,11 @@ keys — `videotool prepare --target local --creative creative.yaml` applies the
   → `references/description-metadata.md`.
 - `captions.renumber` when the SRT numbers chapters relatively (ĐẠO SĨ).
 - `audio.music_schedule` and `enhance.sfx` → `references/sfx-music.md`.
-- `inputs.*` overrides for intro/ending/CTA that auto-detect cannot resolve.
+- `inputs.*` overrides for intro/ending/CTA that auto-detect cannot resolve — paths **inside the
+  episode folder** (`Ảnh bìa Thumbnail-Intro/22.jpg`, the template's bare file name). An absolute
+  path exists on this machine only; the box stops on it (ĐS22).
+- Only keys the pipeline reads: lint rejects anything else (`enhance.atmosphere` did nothing — the
+  overlay key is `enhance.overlay: <file from ~/.local/share/videotool/overlays/>`).
 - `enhance.parallax: true` when `Parallax/` is complete; overlay/mood only per the ask-user gate
   → `references/fx-parallax.md`.
 - `render.bitrate_cap: 2500k` for long episodes (≥ ~2h), `2200k` for ≥ ~3.5h (kaggle-runbook.md).
@@ -77,8 +81,14 @@ Pin the SFX beats and lint the whole creative against the real source (no media 
 
 ```bash
 .venv/bin/videotool creative sfx-pin "<source>" --picks picks.yaml --creative creative.yaml
-.venv/bin/videotool creative lint "<source>" --creative creative.yaml --preview description-preview.txt
+.venv/bin/videotool creative lint "<source>" --creative creative.yaml --preview description-preview.txt \
+    [--template <the template you will stage>]
 ```
+
+These commands take 1–5 minutes. In agy give `run_command` a large `WaitMsBeforeAsync` (600000) for
+them; if one still goes to the background, wait until its task is DONE and read the log before the
+next step. Never start the next step on, and never quote, a result you have not read — and never
+write creative.yaml after sfx-pin (it holds the pinned cues).
 
 `picks.yaml` = `[{quote, near, file, gain_db?, note?}]` — a short narration quote plus its rough
 second; sfx-pin interpolates the exact time inside the SRT cue and rewrites `enhance.sfx.cues`,
@@ -90,11 +100,16 @@ coverage, title cards; the preview is the exact description `package` will rende
 ## Step 4a — Kaggle render (default)
 
 ```bash
-.venv/bin/videotool cloud stage "<source>" --creative creative.yaml --runtime gpu|tpu \
-    [--slug <slug>] [--scene-workers 32] [--resume] [--template <file>] [--dry-run]
+.venv/bin/videotool cloud stage "<gdrive:… source>" --creative creative.yaml --runtime gpu|tpu \
+    [--slug <slug>] [--scene-workers 32] [--resume | --fresh] [--template <file>] [--dry-run]
 ```
+The box reads Drive through rclone, so the source is the `gdrive:` path (a mount path is converted).
 Stage runs the lint gate + every guard, uploads creative (+ template) and the runtime's config
-(never `repo_ref`), then pings Telegram. Tell the user to open that runtime's kernel and Save &
+(never `repo_ref`), then pings Telegram. One stage per episode at a time. Its last line is
+`KẾT QUẢ: ĐÃ STAGE …` or `KẾT QUẢ: CHƯA STAGE — …`: quote it verbatim, and only tell the user to run
+the kernel after `ĐÃ STAGE`. After a run, the episode's checkpoint holds a pinned job.yaml the box
+resumes from: `--resume` continues it, `--fresh` deletes that checkpoint so a changed creative is
+used. Tell the user to open that runtime's kernel and Save &
 Run All — `videotool-watchd` watches, verifies, notifies and cleans the config on its own. Details:
 `references/kaggle-runbook.md`.
 

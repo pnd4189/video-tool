@@ -32,6 +32,14 @@ Loudness spread is −11..−47 dB mean across files, so set `gain_db` per cue f
 - Run `videotool creative lint` (kept/dropped with reasons) and `videotool creative sfx-pin` (quote
   → exact time) instead of simulating the filter by hand. A dropped climax cue is silent.
 
+## Rules `creative lint` blocks the stage on
+
+- Each SFX file **at most 2 times** per episode — the user's rule for every episode (2026-09-21).
+- Every chapter of ≥ 5 min keeps at least one cue; lint prints `sfx.per_chapter`. ĐẠO SĨ Chap 22 kept
+  all its cues inside the first 12 of 82 minutes and nothing flagged it (2026-09-21).
+- `enhance.sfx.pack` written out: the render box does not read series.yaml, so without it the pack is
+  guessed from keywords in the script.
+
 ## Convention (not enforced — keep it)
 
 - Density: ~1 cue per 6-9 min, clustered at action/scares/punchlines, ~0 during exposition or

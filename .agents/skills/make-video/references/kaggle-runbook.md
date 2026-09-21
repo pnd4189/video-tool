@@ -39,11 +39,13 @@ architecture: `docs/cloud-render-setup.md`. Sources: memories `render-on-kaggle-
    config collision and a foreign checkpoint — and never writes `repo_ref`):
    ```bash
    .venv/bin/videotool creative sfx-pin "<source>" --picks picks.yaml --creative creative.yaml
-   .venv/bin/videotool cloud stage "<source>" --creative creative.yaml --runtime tpu \
-    [--slug <slug>] [--scene-workers 32] [--resume] [--template <file>]
+   .venv/bin/videotool cloud stage "<gdrive:… source>" --creative creative.yaml --runtime tpu \
+    [--slug <slug>] [--scene-workers 32] [--resume | --fresh] [--template <file>]
    ```
-   Stage uploads creative (+ template) and the runtime's config, then pings Telegram. `--dry-run`
-   shows the plan without writing.
+   Stage uploads the linted snapshot of the creative (+ template) and the runtime's config, then
+   pings Telegram. `--dry-run` shows the plan without writing. The source is the `gdrive:` path — a
+   mount path is converted, any other local folder is refused (the box cannot reach it; ĐS22 was
+   staged with the mount path once). One stage per episode at a time; the last line is `KẾT QUẢ: …`.
 5. **User clicks.** Open the kernel for the chosen runtime (TPU: `pnd4189/videotool-render-tpu`,
    GPU: `pnd4189/videotool-render`) → Save & Run All. Still never `kaggle kernels push`.
 6. **The watcher daemon does the rest** (`videotool-watchd.service`, no LLM): Telegram "started"
@@ -53,6 +55,9 @@ architecture: `docs/cloud-render-setup.md`. Sources: memories `render-on-kaggle-
    (table), `videotool renders status <slug>`, `videotool cloud watchd --once`,
    `videotool cloud finish <slug>`. CLI sessions surface status through the hook (Phase 5).
 7. **Resume** after a disconnect: stage again with `--resume` and the same slug, user clicks again.
+   Changed the creative after a run started? Stage with `--fresh`: the checkpoint's pinned job.yaml
+   wins on resume, so the change would silently not apply (ĐS22's intro card). `--fresh` deletes
+   only that episode's checkpoint, never another episode's.
 
 Code freshness is checked by stage itself (module md5 vs origin/main) — if it blocks, deploy first
 (push main, then `rclone copyto` the 3 Colab modules to `_VIDEOTOOL_SHARED/`).
