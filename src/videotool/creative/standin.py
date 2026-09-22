@@ -172,6 +172,29 @@ def _srt_end(job_dir: Path) -> float | None:
     return voice_end(parse_srt(srts[0].read_text(encoding="utf-8"))) if srts else None
 
 
+NOMINAL_BROLL_S = 10.0
+
+
+def write_video_placeholder(source: str, rel: str, dest: Path) -> None:
+    """A real, probe-able mp4 so `storyboard auto`'s duration probe does not abort — a 0-byte
+    placeholder killed it ("Invalid data found"), so no folder with a Video/ dir could pass lint
+    while the render box read the real files fine (CHAP 3, 2026-09-22). Local sources keep the
+    clip's true length (ffprobe is free); a remote one uses a nominal length: reading 20 clip
+    headers off a throttled Drive costs minutes, and no lint check depends on the exact b-roll
+    durations — the box reads the real files and still fails fast on a corrupt clip."""
+    try:
+        seconds = NOMINAL_BROLL_S
+        if not is_remote(source):
+            seconds = media_seconds(source, rel) or NOMINAL_BROLL_S
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "lavfi", "-i", f"color=black:s=160x90:r=5:d={seconds:.3f}", str(dest)],
+            check=True, timeout=60, capture_output=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        dest.write_bytes(b"")
+
+
 def build_standin(source: str, job_dir: Path) -> StandIn:
     """Materialize the stand-in under `job_dir` (must not exist yet)."""
     job_dir = Path(job_dir)
@@ -187,7 +210,10 @@ def build_standin(source: str, job_dir: Path) -> StandIn:
             continue
         dest = job_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(b"")
+        if rel.startswith("Video/"):
+            write_video_placeholder(source, rel, dest)
+        else:
+            dest.write_bytes(b"")
     warnings: list[str] = []
     seconds = media_seconds(source, voice)
     if seconds is None:

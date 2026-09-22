@@ -182,3 +182,53 @@ def test_input_overrides_must_stay_inside_the_episode(tmp_path: Path) -> None:
     outside.write_text("x", encoding="utf-8")   # exists on this machine, not on the render box
     with pytest.raises(CreativeError, match="inside the episode folder"):
         apply_input_overrides(tmp_path, {}, {"description_template": str(outside)})
+
+
+def test_bitrate_cap_must_name_a_real_encoder_variant() -> None:
+    bad = lc.check_bitrate_cap({"render": {"bitrate_cap": "2800k"}})[0]
+    assert bad and "no encoder profile" in bad[0] and "2500k" in bad[0]
+    assert lc.check_bitrate_cap({"render": {"bitrate_cap": "2500k"}}) == ([], [])
+    assert lc.check_bitrate_cap({}) == ([], [])
+
+
+def test_video_placeholders_carry_the_real_duration(tmp_path: Path) -> None:
+    """A Video/ stand-in must survive `storyboard auto`'s duration probe (CHAP 3)."""
+    import shutil
+    import subprocess as sp
+
+    from videotool.creative.standin import write_video_placeholder
+
+    source = tmp_path / "episode"
+    (source / "Video").mkdir(parents=True)
+    real = source / "Video" / "clip.mp4"
+    if shutil.which("ffmpeg"):
+        sp.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                "-i", "color=black:s=160x90:r=5:d=2.5", str(real)], check=True, capture_output=True)
+        dest = tmp_path / "placeholder.mp4"
+        write_video_placeholder(str(source), "Video/clip.mp4", dest)
+        probe = sp.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                        "-of", "csv=p=0", str(dest)], capture_output=True, text=True)
+        assert 2.0 <= float(probe.stdout.strip()) <= 3.0
+    def dur(path):
+        return float(sp.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                             "-of", "csv=p=0", str(path)], capture_output=True, text=True).stdout)
+
+    # a remote source takes the nominal length — no per-clip header reads off a throttled Drive
+    dest2 = tmp_path / "nominal.mp4"
+    write_video_placeholder("gdrive:1. YOUTUBE AUDIO/CHAP 3", "Video/clip.mp4", dest2)
+    assert 9.5 <= dur(dest2) <= 10.5
+    # an unreadable local clip also gets the nominal length instead of crashing
+    real.write_bytes(b"")
+    dest3 = tmp_path / "nominal2.mp4"
+    write_video_placeholder(str(source), "Video/clip.mp4", dest3)
+    assert 9.5 <= dur(dest3) <= 10.5
+    # and a broken ffmpeg leaves the old empty placeholder rather than raising
+    import videotool.creative.standin as standin
+    orig = standin.subprocess.run
+    standin.subprocess.run = lambda *a, **k: (_ for _ in ()).throw(OSError("no ffmpeg"))
+    try:
+        dest4 = tmp_path / "raw.mp4"
+        write_video_placeholder(str(source), "Video/clip.mp4", dest4)
+        assert dest4.stat().st_size == 0
+    finally:
+        standin.subprocess.run = orig
