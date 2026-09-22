@@ -43,7 +43,8 @@ are the per-episode creative/template/config files and the cleanup of its own `r
   guard` on every write and `run_command`, denying repo writes outside `plans/`, writes on the mount,
   state-changing git, `pip install`, `kaggle kernels push`, destructive `rclone` (copy/copyto stay
   allowed — that is how an episode publishes) and stopping the watcher. Everything else runs free; an
-  unreadable payload asks the user.
+  unreadable payload asks the user. A blocked `cloud stage` is also final: never hand-write
+  `render_job.json`/upload the config yourself (CHAP 3 failed twice unwatched, 2026-09-22).
 - **New lessons go into the repo, never a CLI's private memory:** `videotool agent lesson "<text>"
   --episode <slug>` appends to `references/lessons-inbox.md` and messages the user; the agent also
   says it in the session. Claude verifies an entry against code/logs before moving it into a
@@ -136,9 +137,8 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
 - Render branches at 40 scenes (`render.max_inline_scenes`): above it the segmented path renders
   scene clips in parallel (one per core, cap 8, `VIDEOTOOL_SCENE_WORKERS`) and bakes the overlay per scene.
 - Every subprocess capture uses `errors="replace"` — Vietnamese bytes cannot crash a run (2026-07-13).
-- The Google CLI is Antigravity (`agy`); Gemini CLI is discontinued. Headless `agy -p` loads no workspace
-  skills without `--project /home/dung/VIBE_CODING/video-tool`, ignores `permissions.allow` (use
-  `--dangerously-skip-permissions`) and exits mid-command — renders run in interactive agy (2026-09-19/20).
+- The Google CLI is Antigravity (`agy`); Gemini CLI is discontinued. Headless `agy -p` needs `--project
+  …video-tool` + `--dangerously-skip-permissions`, exits mid-command — use interactive agy (2026-09-19/20).
 - Key files: `src/videotool/core/{job_spec,storyboard,services}.py`, `render/{video_filters,segmented,
   executor,sfx_mix}.py`, `cli/main.py`; cloud: `Colab/{cloud_director,cloud_render_runner,videotool_cloud}.py`
   and the notebooks `Colab/videotool-render{,-tpu}.ipynb`.

@@ -34,6 +34,10 @@ Everything else: decide, act, report at the end.
   `render_job*.json` cleanup. Local deletes only under `$HOME/.cache/videotool/<name>`.
 - Never `kaggle kernels push`, never edit repo code/workflow files, never `git commit`/`push`, never
   `pip install`. If code looks wrong or stale, stop and tell the user.
+- A blocked `cloud stage` is FINAL: report the ERROR/BLOCK lines and stop. Never stage by hand — no
+  self-written `render_job.json`, no direct `rclone` of the config/creative to `_VIDEOTOOL_SHARED`
+  (that skips lint, the guards and the watcher; CHAP 3 failed on Kaggle twice exactly that way).
+  Tell the user to click Run only after `videotool renders` shows the slug as `staged`.
 - In agy a `PreToolUse` guard enforces that list (`videotool agent guard`). A block is final: read
   the reason, stop, and tell the user — do not look for another way round it. Your own working
   folder is `plans/scratch-<slug>/`; the staged copy under `$HOME/.cache/videotool/<name>` and
@@ -103,7 +107,8 @@ coverage, title cards; the preview is the exact description `package` will rende
 .venv/bin/videotool cloud stage "<gdrive:… source>" --creative creative.yaml --runtime gpu|tpu \
     [--slug <slug>] [--scene-workers 32] [--resume | --fresh] [--template <file>] [--dry-run]
 ```
-The box reads Drive through rclone, so the source is the `gdrive:` path (a mount path is converted).
+The box reads Drive through rclone, so the source is the `gdrive:` path (a mount path is converted);
+give the folder's path, not a Drive folder-id link — the slug cannot be derived from one.
 Stage runs the lint gate + every guard, uploads creative (+ template) and the runtime's config
 (never `repo_ref`), then pings Telegram. One stage per episode at a time. Its last line is
 `KẾT QUẢ: ĐÃ STAGE …` or `KẾT QUẢ: CHƯA STAGE — …`: quote it verbatim, and only tell the user to run
