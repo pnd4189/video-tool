@@ -43,11 +43,13 @@ def _normalise(text: str, pipe_to_dash: bool) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def title_status(title: str, entry: dict) -> tuple[str, str]:
+def title_status(title: str, entry: dict, prev_title: str | None = None) -> tuple[str, str]:
     """('ok' | 'extended' | 'missing' | 'unverified', detail) for `title` against the series list.
 
     'extended' = the title is a listed title plus a trailing "(…)" — e.g. "(Tập Cuối)", which the
-    user added for a final episode; worth a warning, not an error."""
+    user added for a final episode; worth a warning, not an error. `prev_title` is the first line
+    of this episode's own published `Output/description.txt`: the list only carries the newer
+    episodes' hook titles, so a re-render of an old episode keeps its published title instead."""
     source = entry.get("title_source")
     if not source:
         return "unverified", "series has no title_source"
@@ -60,6 +62,8 @@ def title_status(title: str, entry: dict) -> tuple[str, str]:
     wanted = _normalise(title, False)
     if wanted in haystack:
         return "ok", source
+    if prev_title and _normalise(prev_title, False).casefold() == wanted.casefold():
+        return "ok", "matches this episode's published title"
     base = re.sub(r"\s*\([^()]*\)\s*$", "", wanted)
     if base != wanted and base in haystack:
         return "extended", f"'{wanted[len(base):].strip()}' added to the listed title"

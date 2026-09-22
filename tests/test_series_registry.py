@@ -66,3 +66,16 @@ def test_repo_registry_is_found_and_loads() -> None:
     assert registry is not None
     ids = {e["id"] for e in series.load_series(registry)}
     assert {"binh-thien", "dao-si"} <= ids
+
+
+def test_an_old_episodes_title_may_match_its_published_one(tmp_path: Path) -> None:
+    from videotool.creative.series import title_status
+
+    listing = tmp_path / "titles.md"
+    listing.write_text("| Đạo sĩ sợ ma - Tập 30 |\n", encoding="utf-8")
+    entry = {"title_source": str(listing)}
+    # the v9 list only carries the newer hook titles; old tap 1-20 keep their published ones
+    ok, detail = title_status("Đạo Sĩ Sợ Ma - Tập 3", entry, prev_title="Đạo Sĩ Sợ Ma - Tập 3")
+    assert ok == "ok" and "published title" in detail
+    still_missing, _ = title_status("Tựa bịa", entry, prev_title="Đạo Sĩ Sợ Ma - Tập 3")
+    assert still_missing == "missing"

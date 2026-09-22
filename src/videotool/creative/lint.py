@@ -26,7 +26,7 @@ from videotool.creative.parallax import keep_title_cards_static, story_stills
 from videotool.creative.prepare import prepare_job, read_job, run_cli, write_job
 from videotool.creative.rules import CreativeError
 from videotool.creative.series import find_registry, load_series, match_series
-from videotool.creative.standin import build_standin, media_seconds
+from videotool.creative.standin import build_standin, media_seconds, read_head
 
 
 @dataclass
@@ -161,6 +161,10 @@ def _run_checks(report, source, job, creative, data, standin, cta, series_path, 
     if registry is None:
         report.warnings.append("series.yaml not found — title/metadata not checked")
     report.description = _description(job, data, cta_s)
+    prev_title = None
+    if "Output/description.txt" in standin.files:  # this episode's own published title
+        lines = read_head(source, "Output/description.txt", 4096).decode("utf-8", errors="replace").splitlines()
+        prev_title = lines[0].strip() if lines else None
     pack = ((creative.get("enhance") or {}).get("sfx") or {}).get("pack") or \
         (entry or {}).get("sfx_pack") or infer_pack(job)
     sfx_errors, sfx_warnings, explained = lc.check_sfx(creative, sfx_library / pack, end_s)
@@ -171,8 +175,9 @@ def _run_checks(report, source, job, creative, data, standin, cta, series_path, 
     report.add((spread_errors, []))
     report.add(lc.check_cjk(creative, report.description or ""))
     if registry is not None:
-        report.add(lc.check_series(creative, entry))
+        report.add(lc.check_series(creative, entry, prev_title))
     report.add(lc.check_description(report.description))
+    report.add(lc.check_bitrate_cap(creative))
     report.add(lc.check_music(creative, job, (data.get("inputs") or {}).get("music"), end_s))
     report.add(lc.check_title_cards(job, creative, data.get("inputs") or {}))
     stills = story_stills(job, data)

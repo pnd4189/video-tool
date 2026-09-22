@@ -26,7 +26,7 @@ def check_cjk(creative: dict, description: str) -> Found:
     return ([f"Chinese characters in project fields / description: {''.join(hits)}"] if hits else []), []
 
 
-def check_series(creative: dict, entry: dict | None) -> Found:
+def check_series(creative: dict, entry: dict | None, prev_title: str | None = None) -> Found:
     if entry is None:
         return [], ["series not in series.yaml (new series? ask the user for channel, URL, author, title list)"]
     project = creative.get("project") or {}
@@ -36,7 +36,7 @@ def check_series(creative: dict, entry: dict | None) -> Found:
     if not title:
         errors.append("project.title is missing")
     else:
-        status, detail = title_status(title, entry)
+        status, detail = title_status(title, entry, prev_title)
         if status == "missing":
             errors.append(f"project.title is not in the series title list ({detail})")
         elif status == "extended":
@@ -45,6 +45,22 @@ def check_series(creative: dict, entry: dict | None) -> Found:
             warnings.append(f"title not checked: {detail}")
     errors += metadata_mismatches(project.get("metadata") or {}, entry)
     return errors, warnings
+
+
+def check_bitrate_cap(creative: dict) -> Found:
+    """`render.bitrate_cap` must name a real encoder variant: the box maps it onto
+    `<profile>-<cap>` and aborts before any GPU time when that profile does not exist
+    (CHAP 3 pinned '2800k', which is the default ceiling and has no variant)."""
+    cap = (creative.get("render") or {}).get("bitrate_cap")
+    if not cap:
+        return [], []
+    from videotool.render.profiles import PROFILES
+
+    caps = sorted({p.rsplit("-", 1)[-1] for p in PROFILES if re.fullmatch(r"\d+k", p.rsplit("-", 1)[-1])})
+    if not any(p.endswith(f"-{cap}") for p in PROFILES):
+        return ([f"render.bitrate_cap '{cap}' has no encoder profile (valid caps: {', '.join(caps)}; "
+                 "the default ceiling needs no cap) — drop the line or use one of those"], [])
+    return [], []
 
 
 def check_description(description: str | None) -> Found:
