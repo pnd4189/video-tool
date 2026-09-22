@@ -268,3 +268,44 @@ def test_the_kernel_log_wins_over_an_episode_log_that_sorts_earlier(tmp_path):
             return 0, b""
 
     assert kernel_error_lines(WritesBoth(), "pnd4189/videotool-render-tpu") == ["RunnerError: no NVENC"]
+
+
+def test_a_done_render_drops_its_stale_watch_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    st = _state(tmp_path)
+    st["error"] = "rclone lsf ... timed out after 120 seconds"
+    run_state.transition(st, "running")
+    runner = _runner(kernel=COMPLETE)
+    runner.responses[("rclone", "cat", f"{SHARED}/render_job.json")] = \
+        (0, json.dumps({"checkpoint": f"{SHARED}/checkpoints/s"}))
+    watch_mod.step(st, runner, now=3000.0)
+    assert st["status"] == "done" and "error" not in st
+
+
+def _orphan_runner(slug: str | None) -> FakeRunner:
+    responses = {("hermes", "send"): (0, "")}
+    if slug:
+        responses[("rclone", "cat", f"{SHARED}/render_job.json")] = \
+            (0, json.dumps({"checkpoint": f"{SHARED}/checkpoints/{slug}"}))
+    else:
+        responses[("rclone", "cat", f"{SHARED}/render_job.json")] = (1, "")
+    responses[("rclone", "cat", f"{SHARED}/render_job.tpu.json")] = (1, "")
+    return FakeRunner(responses)
+
+
+def test_a_config_without_a_state_warns_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    runner = _orphan_runner("dao-si-chap03")
+    assert watch_mod._warn_orphan_configs(runner, SHARED) == ["dao-si-chap03"]
+    assert runner.seen("hermes", "send")
+    runner2 = _orphan_runner("dao-si-chap03")          # marker written: stays quiet
+    assert watch_mod._warn_orphan_configs(runner2, SHARED) == []
+    assert not runner2.seen("hermes", "send")
+
+
+def test_a_config_whose_episode_is_watched_stays_quiet(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    _state(tmp_path)                                     # slug "s" has a state file
+    runner = _orphan_runner("s")
+    assert watch_mod._warn_orphan_configs(runner, SHARED) == []
+    assert not runner.seen("hermes", "send")

@@ -8,6 +8,7 @@ watch-error (still retried) instead of killing the daemon.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import time
 
@@ -15,12 +16,13 @@ import yaml
 
 from videotool.cloud import remote
 from videotool.cloud.remote import Runner
-from videotool.cloud.config import ABANDON_AFTER_S, POLL_S, PROGRESS_S, REMIND_AFTER_S, shared_root
-from videotool.cloud.finish import RefuseCleanup, finish
+from videotool.cloud.config import ABANDON_AFTER_S, POLL_S, PROGRESS_S, REMIND_AFTER_S, config_name, shared_root
+from videotool.cloud.finish import RefuseCleanup, _read_config, finish
 from videotool.cloud.kernel_log import kernel_error_lines
+from videotool.cloud.stage_guards import slug_of
 from videotool.cloud.verify import verify_output
 from videotool.runs import state as run_state
-from videotool.runs.notify import notify
+from videotool.runs.notify import notify, send
 
 MAX_FAILURES = 3
 
@@ -158,6 +160,7 @@ def _verify(state: dict, runner: Runner, shared: str) -> None:
     state["verify"] = result
     if result["ok"]:
         run_state.transition(state, "done", "verify ĐẠT")
+        state.pop("error", None)  # a finished render must not keep showing an old watch hiccup
         try:
             finish(runner, state, shared)
             note = "config đã dọn"
@@ -181,9 +184,46 @@ def _failed(state: dict, runner: Runner, kind: str) -> None:
            f"[{state['slug']}] kernel {kind.upper()} — config giữ nguyên: " + " / ".join(lines)[:400])
 
 
+def _warn_orphan_configs(runner: Runner, shared: str) -> list[str]:
+    """Warn once per slug about a runtime config on Drive with no state file — a render nobody is
+    watching. CHAP 3 was hand-staged by a script and failed on Kaggle twice before anyone noticed,
+    exactly because no state meant no watcher and no notification."""
+    marker = run_state.state_dir() / ".orphan-warned.json"
+    try:
+        warned = set(json.loads(marker.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        warned = set()
+    fresh: list[str] = []
+    for runtime in ("gpu", "tpu"):
+        config = _read_config(runner, f"{shared}/{config_name(runtime)}")
+        slug = slug_of(config) if config else ""
+        if not slug or slug in warned or run_state.load(slug) is not None:
+            continue
+        warned.add(slug)
+        fresh.append(slug)
+        send(runner, f"[videotool] {config_name(runtime)} trỏ {slug} nhưng KHÔNG có state — render này "
+                     "không được canh (stage tay?). Chạy lại `videotool cloud stage` cho đúng luồng, hoặc "
+                     f"`videotool cloud finish {slug}` để dọn.")
+    if fresh:
+        try:
+            run_state.ensure_dir()
+            marker.write_text(json.dumps(sorted(warned)), encoding="utf-8")
+        except OSError:
+            pass
+    return fresh
+
+
 def loop(runner: Runner = remote.real_runner, once: bool = False) -> None:
     """The daemon body: poll every active state file; one bad render never stops the rest."""
+    last_orphan = 0.0
     while True:
+        if time.time() - last_orphan >= PROGRESS_S:  # also fires on the first pass (--once included)
+            last_orphan = time.time()
+            try:
+                for slug in _warn_orphan_configs(runner, shared_root()):
+                    print(f"[{slug}] config trên Drive không có state — đã báo")
+            except Exception as exc:  # noqa: BLE001 — the daemon must survive anything
+                print(f"[orphan-check] crash: {exc}")
         for state in run_state.list_states(days=30):
             try:
                 step(state, runner)
