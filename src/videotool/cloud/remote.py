@@ -20,6 +20,7 @@ Runner = Callable[..., tuple[int, bytes]]
 _KAGGLE_STATES = {
     "QUEUED": "queued", "RUNNING": "running", "COMPLETE": "complete",
     "ERROR": "error", "CANCELLED": "cancelled", "CANCELREQUESTED": "cancelled",
+    "CANCEL_ACKNOWLEDGED": "cancelled",
 }
 
 
@@ -56,7 +57,7 @@ def kernel_status(runner: Runner, kernel: str) -> str | None:
         out = kaggle_text(runner, ["kernels", "status", kernel])
     except (RemoteError, subprocess.TimeoutExpired):
         return None
-    m = re.search(r'KernelWorkerStatus\.([A-Z]+)"', out)
+    m = re.search(r'KernelWorkerStatus\.([A-Z_]+)"', out)
     return _KAGGLE_STATES.get(m.group(1)) if m else None
 
 
