@@ -72,6 +72,7 @@ def test_auto_event_reads_the_agy_payload(tmp_path, monkeypatch):
 
 def test_silent_when_no_news_and_never_raises(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr("videotool.agent.lessons.pending", lambda *a, **k: 0)  # not the repo's real inbox
     (tmp_path / "videotool/renders").mkdir(parents=True)
     (tmp_path / "videotool/renders/broken.json").write_text("{", encoding="utf-8")
     runner = FakeRunner()
