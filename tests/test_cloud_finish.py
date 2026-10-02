@@ -6,7 +6,7 @@ import json
 
 from videotool.cloud import finish as finish_mod
 
-from cloud_fakes import FakeRunner  # noqa: TID252
+from cloud_fakes import FakeRunner, TimeoutRunner  # noqa: TID252
 
 SHARED = "gdrive:_VIDEOTOOL_SHARED"
 DONE = {"slug": "s", "status": "done", "kernel": "k/1", "config_name": "render_job.json",
@@ -81,4 +81,15 @@ def test_refuses_when_kernel_status_is_unreadable():
         raise AssertionError("should have refused")
     except finish_mod.RefuseCleanup as exc:
         assert "không đọc được" in str(exc)
+    assert not runner.seen("rclone", "delete")
+
+
+def test_refuses_when_the_drive_is_too_slow_to_read_the_config():
+    runner = TimeoutRunner(("rclone", "cat"),
+                           {("kaggle", "kernels", "status"): (0, 'k/1 has status "KernelWorkerStatus.COMPLETE"')})
+    try:
+        finish_mod.finish(runner, dict(DONE), SHARED)
+        raise AssertionError("should have refused")
+    except finish_mod.RefuseCleanup as exc:
+        assert "quá chậm" in str(exc)
     assert not runner.seen("rclone", "delete")

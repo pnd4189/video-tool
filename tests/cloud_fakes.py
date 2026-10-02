@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 
@@ -34,3 +35,18 @@ class FakeRunner:
 
     def seen(self, *prefix: str) -> bool:
         return any(call[: len(prefix)] == list(prefix) for call in self.calls)
+
+
+class TimeoutRunner(FakeRunner):
+    """A FakeRunner whose calls starting with `hang_on` never answer: they raise TimeoutExpired,
+    like a real runner when Drive is slow."""
+
+    def __init__(self, hang_on: tuple[str, ...], responses: dict[tuple, tuple[int, str]] | None = None):
+        super().__init__(responses)
+        self.hang_on = list(hang_on)
+
+    def __call__(self, args: list[str], timeout: float = 0, env: dict | None = None):
+        if list(args[: len(self.hang_on)]) == self.hang_on:
+            self.calls.append(list(args))
+            raise subprocess.TimeoutExpired(args, timeout)
+        return super().__call__(args, timeout, env)

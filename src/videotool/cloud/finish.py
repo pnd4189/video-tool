@@ -30,7 +30,10 @@ def finish(runner: Runner, state: dict, shared: str) -> None:
     if not state.get("config_name"):
         raise RefuseCleanup("state không có config_name — không biết file nào để dọn")
     config_remote = f"{shared}/{state['config_name']}"
-    current = _read_config(runner, config_remote)
+    try:
+        current = _read_config(runner, config_remote)
+    except remote.RemoteTimeout as exc:
+        raise RefuseCleanup(f"không đọc được {state['config_name']} (Drive quá chậm) — thử lại sau") from exc
     if current is None:
         return  # already gone — nothing to do
     if not _points_at(current, state["slug"]):
@@ -39,8 +42,11 @@ def finish(runner: Runner, state: dict, shared: str) -> None:
 
 
 def _read_config(runner: Runner, config_remote: str) -> dict | None:
+    """The config on Drive; None when absent or unparsable. A timeout propagates: unknown is not absent."""
     try:
         return json.loads(remote.remote_text(runner, config_remote, REMOTE_TIMEOUT_S) or "null")
+    except remote.RemoteTimeout:
+        raise
     except (remote.RemoteError, ValueError):
         return None
 

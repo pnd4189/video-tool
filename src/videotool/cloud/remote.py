@@ -28,6 +28,11 @@ class RemoteError(RuntimeError):
     """A remote call failed (network, quota, rclone/kaggle exit)."""
 
 
+class RemoteTimeout(RemoteError):
+    """A remote call did not answer in time. The answer is unknown, not 'absent': a caller that
+    treats a missing file as 'nothing there' must not treat this the same way."""
+
+
 def real_runner(args: list[str], timeout: float = 120, env: dict | None = None) -> tuple[int, bytes]:
     result = subprocess.run(
         args, capture_output=True, timeout=timeout, check=False,
@@ -37,7 +42,10 @@ def real_runner(args: list[str], timeout: float = 120, env: dict | None = None) 
 
 
 def _run(runner: Runner, args: list[str], timeout: float) -> str:
-    code, out = runner(list(args), timeout=timeout)
+    try:
+        code, out = runner(list(args), timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise RemoteTimeout(f"{' '.join(args[:3])}… timed out after {timeout:.0f}s") from exc
     if code != 0:
         raise RemoteError(f"{' '.join(args[:3])}… exited {code}")
     return out.decode("utf-8", errors="replace") if isinstance(out, bytes) else out
@@ -55,7 +63,7 @@ def kernel_status(runner: Runner, kernel: str) -> str | None:
     """queued|running|complete|error|cancelled, or None when the CLI output is not parsable."""
     try:
         out = kaggle_text(runner, ["kernels", "status", kernel])
-    except (RemoteError, subprocess.TimeoutExpired):
+    except RemoteError:
         return None
     m = re.search(r'KernelWorkerStatus\.([A-Z_]+)"', out)
     return _KAGGLE_STATES.get(m.group(1)) if m else None
@@ -97,7 +105,10 @@ def md5_of_blob(runner: Runner, git_path: str) -> str:
 
 def md5_on_remote(runner: Runner, remote: str) -> str | None:
     """`rclone md5sum` of one Drive file; None when the file is absent or has no hash yet."""
-    code, out = runner(["rclone", "md5sum", remote], timeout=120)
+    try:
+        code, out = runner(["rclone", "md5sum", remote], timeout=120)
+    except subprocess.TimeoutExpired:
+        return None
     if code != 0:
         return None
     m = re.match(r"([0-9a-f]{32})\s", out.decode("utf-8", errors="replace"))

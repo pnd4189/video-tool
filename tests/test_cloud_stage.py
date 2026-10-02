@@ -12,7 +12,7 @@ import yaml
 from videotool.cloud import stage as stage_mod
 from videotool.runs import state as run_state
 
-from cloud_fakes import FakeRunner  # noqa: TID252
+from cloud_fakes import FakeRunner, TimeoutRunner  # noqa: TID252
 
 SOURCE = "gdrive:series/Chap 55"
 SHARED = "gdrive:_VIDEOTOOL_SHARED"
@@ -335,3 +335,39 @@ def test_a_failed_drive_write_still_ends_with_the_result_line(tmp_path, monkeypa
     assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=runner) == 1
     last = capsys.readouterr().out.rstrip().splitlines()[-1]
     assert last.startswith("KẾT QUẢ: CHƯA STAGE — một lệnh ghi Drive lỗi")
+
+
+def _slow_runner(hang_on: tuple[str, ...]) -> TimeoutRunner:
+    """The all-clear world of _ok_runner, except calls starting with `hang_on` never answer."""
+    runner = TimeoutRunner(hang_on)
+    runner.responses = _ok_runner().responses
+    return runner
+
+
+def test_slow_drive_on_the_checkpoint_blocks_instead_of_assuming_there_is_none(tmp_path, monkeypatch):
+    _patch(monkeypatch, tmp_path)
+    runner = _slow_runner(("rclone", "cat", f"{SHARED}/checkpoints/binh-thien-chap55/job.yaml"))
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=runner) == 1
+    assert not runner.seen("rclone", "copyto")  # a pinned job.yaml may exist: nothing was written
+
+
+def test_slow_drive_on_a_config_blocks_instead_of_assuming_it_is_empty(tmp_path, monkeypatch):
+    _patch(monkeypatch, tmp_path)
+    runner = _slow_runner(("rclone", "cat", f"{SHARED}/render_job.tpu.json"))
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=runner) == 1
+    assert not runner.seen("rclone", "copyto")  # it may hold another episode: never overwrite blind
+
+
+def test_slow_drive_on_the_template_blocks_instead_of_overwriting(tmp_path, monkeypatch):
+    _patch(monkeypatch, tmp_path)
+    template = tmp_path / "T_DESCRIPTION_TEMPLATE.txt"
+    template.write_text("TEMPLATE A", encoding="utf-8")
+    runner = _slow_runner(("rclone", "cat", f"{SOURCE}/T_DESCRIPTION_TEMPLATE.txt"))
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", template=template, runner=runner) == 1
+    assert not runner.seen("rclone", "copyto")  # a hand-edited template may already be there
+
+
+def test_slow_drive_on_a_module_hash_blocks_instead_of_crashing(tmp_path, monkeypatch):
+    _patch(monkeypatch, tmp_path)
+    runner = _slow_runner(("rclone", "md5sum"))
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=runner) == 1

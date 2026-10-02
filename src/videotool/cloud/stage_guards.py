@@ -63,21 +63,32 @@ def guards(runner: Runner, shared: str, runtime: str, slug: str, title: str, res
     elif status is None:
         problems.append(f"không đọc được trạng thái kernel {kernel}")
 
-    mine = _read_config(runner, f"{shared}/{config_name(runtime)}")
+    other = "tpu" if runtime == "gpu" else "gpu"
+    try:
+        mine = _read_config(runner, f"{shared}/{config_name(runtime)}")
+        theirs = _read_config(runner, f"{shared}/{config_name(other)}")
+    except remote.RemoteTimeout:
+        problems.append("không đọc được config trên Drive (quá chậm) — thử lại sau vài phút; "
+                        "không stage khi chưa biết config đang giữ tập nào")
+        mine = theirs = None
     if mine and not _points_at(mine, slug):
         problems.append(f"{config_name(runtime)} đang giữ tập {slug_of(mine)} (chưa chạy, hoặc giữ để "
                         f"resume) — xong tập đó hoặc `videotool cloud finish {slug_of(mine)}` trước")
-    other = "tpu" if runtime == "gpu" else "gpu"
-    theirs = _read_config(runner, f"{shared}/{config_name(other)}")
     if theirs and _points_at(theirs, slug):
         problems.append(f"{config_name(other)} (kernel {other}) đang trỏ đúng tập {slug} này")
 
     checkpoint, purge = checkpoint_problems(runner, shared, slug, title, resume, fresh)
     problems += checkpoint
     if template:
-        existing = remote_template(runner, source, Path(template))
-        if existing is not None and existing != Path(template).read_text(encoding="utf-8"):
-            problems.append(f"template {Path(template).name} đã có trên nguồn với nội dung khác — không ghi đè")
+        try:
+            existing = remote_template(runner, source, Path(template))
+        except remote.RemoteTimeout:
+            problems.append(f"không đọc được template {Path(template).name} trên nguồn (Drive quá chậm) — "
+                            "thử lại sau vài phút; không ghi đè khi chưa biết nó đã có chưa")
+        else:
+            if existing is not None and existing != Path(template).read_text(encoding="utf-8"):
+                problems.append(f"template {Path(template).name} đã có trên nguồn với nội dung khác — "
+                                "không ghi đè")
     return problems, purge
 
 
@@ -87,6 +98,9 @@ def checkpoint_problems(runner: Runner, shared: str, slug: str, title: str, resu
     box RESUME with it and skip the new creative — the ĐS22 intro-card fix could not have landed."""
     try:
         job = remote.remote_text(runner, f"{shared}/checkpoints/{slug}/job.yaml", 120)
+    except remote.RemoteTimeout:
+        return [f"không đọc được checkpoint {slug} (Drive quá chậm) — thử lại sau vài phút; không stage khi "
+                "chưa biết đã có job.yaml ghim từ lần chạy trước hay chưa"], False
     except remote.RemoteError:
         return [], False
     try:  # parsed, not pattern-matched: the box dumps a title holding ": " in single quotes
@@ -107,8 +121,11 @@ def checkpoint_problems(runner: Runner, shared: str, slug: str, title: str, resu
 
 
 def remote_template(runner: Runner, source: str, template: Path) -> str | None:
-    """The template already on the source folder, or None when there is none."""
+    """The template already on the source folder, or None when there is none. A timeout propagates:
+    unknown is not absent."""
     try:
         return remote.remote_text(runner, f"{source.rstrip('/')}/{template.name}", 120)
+    except remote.RemoteTimeout:
+        raise
     except remote.RemoteError:
         return None
