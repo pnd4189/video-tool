@@ -39,3 +39,15 @@ def test_kernel_status_reads_the_cancel_acknowledged_state():
     runner = FakeRunner({("kaggle", "kernels", "status"):
                          (0, 'k/1 has status "KernelWorkerStatus.CANCEL_ACKNOWLEDGED"')})
     assert remote.kernel_status(runner, "k/1") == "cancelled"
+
+
+def test_kernel_status_reads_the_cancel_requested_state():
+    runner = FakeRunner({("kaggle", "kernels", "status"):
+                         (0, 'k/1 has status "KernelWorkerStatus.CANCEL_REQUESTED"')})
+    assert remote.kernel_status(runner, "k/1") == "cancelled"
+
+
+def test_kernel_status_of_a_state_it_does_not_know_is_none_not_a_guess():
+    runner = FakeRunner({("kaggle", "kernels", "status"):
+                         (0, 'k/1 has status "KernelWorkerStatus.NEW_SCRIPT"')})
+    assert remote.kernel_status(runner, "k/1") is None

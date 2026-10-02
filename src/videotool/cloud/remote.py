@@ -19,7 +19,7 @@ Runner = Callable[..., tuple[int, bytes]]
 
 _KAGGLE_STATES = {
     "QUEUED": "queued", "RUNNING": "running", "COMPLETE": "complete",
-    "ERROR": "error", "CANCELLED": "cancelled", "CANCELREQUESTED": "cancelled",
+    "ERROR": "error", "CANCELLED": "cancelled", "CANCEL_REQUESTED": "cancelled",
     "CANCEL_ACKNOWLEDGED": "cancelled",
 }
 
