@@ -17,6 +17,12 @@ architecture: `docs/cloud-render-setup.md`. Sources: memories `render-on-kaggle-
   kernel renders whatever older episode is still in that file.
 - Two episodes can run in parallel (one per kernel); quotas add up (GPU 30h + TPU 20h per week).
 - One checkpoint slug per episode (`_VIDEOTOOL_SHARED/checkpoints/<slug>`), never shared.
+- **Switching runtime after staging** (TPU→GPU, chap58 2026-09-27): stage then BLOCKs because the
+  other runtime's config still points at this episode (`stage_guards.py`). The user must Stop a
+  queued kernel in the Kaggle UI (cancelling in the queue spends no quota; agy saw one sit QUEUED
+  11h+ — a single report, not reproduced). Only after both kernels are idle may Claude delete THAT
+  episode's own stale `render_job*.json` (rclone deletefile, the one allowed cleanup), then re-stage
+  with `cloud stage`. Render-only agents: stop and tell the user.
 - **Never resume across runtimes.** The encoder is pinned into the checkpoint on the first run;
   a GPU-started episode resumed on TPU aborts on purpose, a TPU-started one crawls on GPU.
 - User did not say which: TPU renders ~2.5× faster end to end (224 vCPU, ffmpeg 7.1) but its queue
