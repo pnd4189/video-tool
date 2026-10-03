@@ -174,11 +174,15 @@ def check_title_cards(job_dir: Path, creative: dict, inputs: dict) -> Found:
     return [], warnings
 
 
-def check_parallax(creative: dict, data: dict, stills: int) -> Found:
-    enhance = creative.get("enhance") or {}
-    if not (data.get("enhance") or {}).get("parallax") or stills == 0:
+def check_parallax(data: dict, stills: int, clip_files: int) -> Found:
+    """Parallax/ is optional: full -> every still is a clip, none -> Ken Burns. Only a partial or
+    mismatched folder is worth a look (an unfinished upload, or clips from another chapter)."""
+    if stills == 0:
         return [], []
-    if enhance.get("parallax_on_box"):
+    if (data.get("enhance") or {}).get("parallax"):  # set only with parallax_on_box (apply_creative)
         return [], [f"{stills} still(s) will get depth parallax ON THE BOX (hours) — parallax_on_box is set"]
-    return [f"enhance.parallax is on but {stills} story still(s) have no clip in Parallax/ — "
-            "the box aborts; upload the clips or ask the user"], []
+    if clip_files:
+        linked = sum(1 for s in data.get("storyboard") or [] if str(s.get("video", "")).startswith("Parallax/"))
+        return [], [f"Parallax/ covers {linked} still(s) ({clip_files} file(s) in the folder); {stills} story "
+                    "still(s) render as Ken Burns — if the upload is unfinished or from another chapter, fix it first"]
+    return [], []

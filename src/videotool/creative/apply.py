@@ -91,7 +91,8 @@ def apply_creative(
             mood: cozy            # clean|melancholy|cozy|horror|action
             grain: false          # default false — grain eats the capped bitrate budget
             overlay: fireflies-gen-01.mp4   # filename in the overlay library -> copied into job
-            parallax: true        # link Parallax/ clips (parallax_on_box: opt into depth on the box)
+            parallax: true        # + parallax_on_box: true -> depth on stills without a Parallax/ clip
+                                  # (clips link on their own; without on_box those stills stay Ken Burns)
             sfx: {pack: dao-si, cues: [{time, file, gain_db?}, ...]}
         captions: {renumber: {1: 77, 33: 78}}   # fix chapter numbers in the BURNED subtitles
         render: {bitrate_cap: 2500k}             # read by the cloud runner / local prepare
@@ -135,7 +136,10 @@ def apply_creative(
         if key in enh:
             denh[key] = enh[key]
     if enh.get("parallax") is not None:
-        denh["parallax"] = enh["parallax"]
+        # Parallax/ clips link whenever the folder exists; the job flag only adds depth parallax
+        # to the stills left without a clip (hours), so it needs the explicit on-box opt-in.
+        # Without it those stills render as Ken Burns instead of aborting the box.
+        denh["parallax"] = bool(enh["parallax"] and enh.get("parallax_on_box"))
 
     overlay = enh.get("overlay")
     if overlay:

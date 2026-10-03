@@ -81,12 +81,23 @@ def test_title_card_warnings(tmp_path: Path) -> None:
     assert warnings == ["no ending_image (0 candidate(s)) — the last 10s have no ending card"]
 
 
-def test_parallax_missing_clips_is_an_error_unless_opted_in() -> None:
-    creative = {"enhance": {"parallax": True}}
-    data = {"enhance": {"parallax": True}}
-    errors, _ = lc.check_parallax(creative, data, stills=12)
-    assert errors and "12 story still(s)" in errors[0]
-    assert lc.check_parallax({"enhance": {"parallax": True, "parallax_on_box": True}}, data, 12) == \
+def test_parallax_folder_full_or_absent_is_silent() -> None:
+    # Full Parallax/: no story still left. No Parallax/: every still is Ken Burns by design.
+    assert lc.check_parallax({"enhance": {"parallax": False}}, stills=0, clip_files=120) == ([], [])
+    assert lc.check_parallax({"enhance": {"parallax": False}}, stills=109, clip_files=0) == ([], [])
+
+
+def test_parallax_partial_or_mismatched_folder_warns_but_never_blocks() -> None:
+    data = {"enhance": {"parallax": False},
+            "storyboard": [{"video": "Parallax/a.mp4"}, {"video": "Video/broll.mp4"}, {"image": "Image/b.jpg"}]}
+    errors, warnings = lc.check_parallax(data, stills=1, clip_files=2)
+    assert errors == []
+    assert warnings and "covers 1 still(s) (2 file(s)" in warnings[0]
+    assert "1 story still(s) render as Ken Burns" in warnings[0]
+
+
+def test_parallax_on_box_opt_in_warns_about_the_hours() -> None:
+    assert lc.check_parallax({"enhance": {"parallax": True}}, stills=12, clip_files=0) == \
         ([], ["12 still(s) will get depth parallax ON THE BOX (hours) — parallax_on_box is set"])
 
 

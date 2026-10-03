@@ -69,10 +69,18 @@ def test_apply_creative_rejects_missing_input_override(tmp_path: Path) -> None:
         cd.apply_creative(tmp_path, {}, {"inputs": {"intro_image": "nope.jpg"}}, tmp_path, tmp_path)
 
 
-def test_apply_creative_passes_parallax_through(tmp_path: Path) -> None:
-    # Episodes without a pre-rendered Parallax/ folder request depth-parallax via creative.yaml.
+def test_apply_creative_keeps_depth_parallax_off_without_the_on_box_opt_in(tmp_path: Path) -> None:
+    # Parallax/ clips link on their own; stills without a clip render as Ken Burns, never as
+    # hours of depth work on the box (or an abort) just because `parallax: true` was left set.
     data: dict = {}
     cd.apply_creative(tmp_path, data, {"enhance": {"parallax": True}}, tmp_path, tmp_path)
+    assert data["enhance"]["parallax"] is False
+
+
+def test_apply_creative_turns_depth_parallax_on_with_the_on_box_opt_in(tmp_path: Path) -> None:
+    data: dict = {}
+    creative = {"enhance": {"parallax": True, "parallax_on_box": True}}
+    cd.apply_creative(tmp_path, data, creative, tmp_path, tmp_path)
     assert data["enhance"]["parallax"] is True
 
 
