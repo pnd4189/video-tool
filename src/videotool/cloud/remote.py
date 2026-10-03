@@ -143,6 +143,21 @@ def unmerged_box_code(runner: Runner) -> list[str]:
     return [line for line in out.decode("utf-8", errors="replace").splitlines() if line.strip()]
 
 
+def uncommitted_box_code(runner: Runner) -> list[str] | None:
+    """Files the render box runs (`src/`, `Colab/`) that are edited, staged or new but not committed.
+
+    `lint` runs the working tree while the box installs `main`, and `unmerged_box_code` only compares
+    commits, so an uncommitted edit passes lint and never reaches the box. None when git cannot
+    answer: the caller blocks instead of guessing the tree is clean."""
+    code, out = runner(["git", "-C", str(Path(__file__).resolve().parents[3]), "-c", "core.quotePath=false",
+                        "status", "--porcelain", "--untracked-files=all", "--", "src", "Colab"],
+                       timeout=60)
+    if code != 0:
+        return None
+    lines = out.decode("utf-8", errors="replace").splitlines()
+    return [line[3:].split(" -> ")[-1] for line in lines if line.strip()]  # "XY path" / "R  old -> new"
+
+
 def count_clips(runner: Runner, checkpoint: str) -> int:
     from videotool.cloud.config import clip_dir
 

@@ -46,6 +46,12 @@ def guards(runner: Runner, shared: str, runtime: str, slug: str, title: str, res
     if unmerged:
         problems.append(f"{len(unmerged)} file code chưa lên main ({', '.join(unmerged[:3])}…) — box cài "
                         "videotool từ main nên sẽ chạy code CŨ so với bản lint vừa chạy; push trước")
+    dirty = remote.uncommitted_box_code(runner)
+    if dirty is None:
+        problems.append("không đọc được git status của src/ Colab/ — không biết box có chạy đúng bản vừa lint")
+    elif dirty:
+        problems.append(f"{len(dirty)} file code chưa commit ({', '.join(dirty[:3])}…) — lint vừa chạy bằng bản "
+                        "đang sửa nhưng box cài videotool từ main; commit + push trước")
 
     for module in CLOUD_MODULES:
         name = Path(module).name

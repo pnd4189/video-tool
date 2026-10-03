@@ -57,6 +57,7 @@ def _patch(monkeypatch, tmp_path, report=None):
     monkeypatch.setattr(stage_mod.remote, "github_head", lambda runner: "abc1234")
     monkeypatch.setattr(stage_mod.remote, "local_origin_main", lambda runner: "abc1234")
     monkeypatch.setattr(stage_mod.remote, "unmerged_box_code", lambda runner: [])
+    monkeypatch.setattr(stage_mod.remote, "uncommitted_box_code", lambda runner: [])
 
 
 def test_tpu_writes_the_tpu_config_without_repo_ref(tmp_path, monkeypatch):
@@ -212,6 +213,20 @@ def test_code_the_box_runs_but_main_does_not_have_blocks(tmp_path, monkeypatch):
     _patch(monkeypatch, tmp_path)
     monkeypatch.setattr(stage_mod.remote, "unmerged_box_code",
                         lambda runner: ["src/videotool/creative/lint.py"])
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=_ok_runner()) == 1
+
+
+def test_uncommitted_box_code_blocks_because_the_box_installs_main(tmp_path, monkeypatch, capsys):
+    _patch(monkeypatch, tmp_path)
+    monkeypatch.setattr(stage_mod.remote, "uncommitted_box_code",
+                        lambda runner: ["src/videotool/creative/apply.py"])
+    assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=_ok_runner()) == 1
+    assert "chưa commit" in capsys.readouterr().out
+
+
+def test_an_unreadable_git_status_blocks(tmp_path, monkeypatch):
+    _patch(monkeypatch, tmp_path)
+    monkeypatch.setattr(stage_mod.remote, "uncommitted_box_code", lambda runner: None)
     assert stage_mod.stage(SOURCE, _creative(tmp_path), "tpu", runner=_ok_runner()) == 1
 
 

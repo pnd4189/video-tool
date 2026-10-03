@@ -51,3 +51,21 @@ def test_kernel_status_of_a_state_it_does_not_know_is_none_not_a_guess():
     runner = FakeRunner({("kaggle", "kernels", "status"):
                          (0, 'k/1 has status "KernelWorkerStatus.NEW_SCRIPT"')})
     assert remote.kernel_status(runner, "k/1") is None
+
+
+def test_uncommitted_box_code_lists_edited_staged_renamed_and_new_files():
+    # lint runs the working tree but the box installs main: none of these would reach the box.
+    status = (" M src/videotool/creative/apply.py\n"
+              "A  Colab/new_helper.py\n"
+              "R  src/videotool/old.py -> src/videotool/new.py\n"
+              "?? src/videotool/creative/scratch.py\n")
+    runner = FakeRunner({("git", "-C"): (0, status)})
+    assert remote.uncommitted_box_code(runner) == [
+        "src/videotool/creative/apply.py", "Colab/new_helper.py",
+        "src/videotool/new.py", "src/videotool/creative/scratch.py",
+    ]
+    assert "--untracked-files=all" in runner.calls[0]
+
+
+def test_uncommitted_box_code_is_none_when_git_cannot_answer():
+    assert remote.uncommitted_box_code(FakeRunner({("git", "-C"): (128, "")})) is None
