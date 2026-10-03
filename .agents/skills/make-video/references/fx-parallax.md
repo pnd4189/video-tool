@@ -47,13 +47,18 @@ unprompted.
 | Cost | free (data-layer swap) | ~3h15 for 109 images on the GPU box, not checkpointed |
 | Use | always, when the folder exists | only with explicit user approval |
 
-- The user's folders normally ship `Parallax/`. Before staging, count `Parallax/*.mp4` vs
-  `Image/*` — they must match. Missing or short → **tell the user and ask**; do not enable on-box
-  depth. The runner aborts in ~3 min when `enhance.parallax` is on and stills lack clips, unless
-  creative.yaml has `enhance.parallax_on_box: true` (only after the user said yes).
-- Kaggle creative: `enhance.parallax: true` with a full `Parallax/` → the runner links the clips,
-  then turns `enhance.parallax` off so the intro/ending cards stay still ("enhance.parallax off" in
-  the log is normal).
+- `Parallax/` is optional (user, 2026-10-03: the DepthFlow step costs 2–3 h of GPU per episode).
+  Lint, `prepare` and the Kaggle runner link it whenever the folder exists — no creative key needed.
+  Count `Parallax/*.mp4` vs `Image/*` before staging:
+  - full → every story still becomes its clip;
+  - absent or empty → every still is Ken Burns. Not a question; say it in the report;
+  - partial, or clips naming no image (unfinished upload, another chapter's clips) → lint warns
+    "Parallax/ covers N still(s) … render as Ken Burns"; **ask the user** before staging.
+- On-box depth for stills without a clip needs BOTH `enhance.parallax: true` and
+  `enhance.parallax_on_box: true` (only after the user said yes; hours). `parallax: true` alone
+  leaves the job flag off (`apply_creative`), so an old creative that still sets it renders Ken
+  Burns instead of aborting the box. With every story still linked the runner turns the flag off
+  so the intro/ending cards stay still ("enhance.parallax off" in the log is normal).
 - Local: `/parallax-video` = `/make-video` + `videotool parallax-link "$JOB" --clips-dir Parallax`
   after the storyboard. Do not set `enhance.parallax` there.
 - Clip filenames match image stems (`____SCENE_NNN_____N.mp4`). Do not trust folder names — verify

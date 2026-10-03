@@ -12,7 +12,7 @@ Speed-to-publish beats polish. Project rules and locked decisions: `AGENTS.md` (
 ## Inputs
 
 A Chap folder (gdrive path, mount path, or Drive link) containing: voice (`.wav` > `.m4a` > `.mp3`),
-`Image/`, optional `Video/` (b-roll — always used), `Parallax/`, `Music/`, the provided
+`Image/`, optional `Video/` (b-roll — always used), optional `Parallax/`, `Music/`, the provided
 `*_vi_qa.srt` + `*_vi_qa.txt`, `*_music_prompts.txt`, a scene plan (`*_scene_anchors.md` or
 `.work/scene-plan.md`), `CTA voice/`, a thumbnail folder, an ending image.
 Hints: `GPU` / `TPU` / `local`, FX/overlay wishes, `shorts`/`9x16`/`--all`.
@@ -23,7 +23,8 @@ Hints: `GPU` / `TPU` / `local`, FX/overlay wishes, `shorts`/`9x16`/`--all`.
    title-list location. Never guess.
 2. **FX hint given**: propose ONE overlay (and mood if asked) in one line, wait for "ok" — unless
    the user already named it or said "không cần hỏi". No hint → render clean, propose nothing.
-3. **`Parallax/` count ≠ `Image/` count**, or no voice / no SRT / zero images and clips.
+3. **`Parallax/` partly filled** (fewer clips than `Image/`, or clips matching no image — lint warns),
+   or no voice / no SRT / zero images and clips. No `Parallax/` at all is not a question: Ken Burns.
 4. Runtime unclear and the difference matters (TPU queue vs GPU speed) — one question.
 Everything else: decide, act, report at the end.
 
@@ -71,8 +72,9 @@ keys — `videotool prepare --target local --creative creative.yaml` applies the
   path exists on this machine only; the box stops on it (ĐS22).
 - Only keys the pipeline reads: lint rejects anything else (`enhance.atmosphere` did nothing — the
   overlay key is `enhance.overlay: <file from ~/.local/share/videotool/overlays/>`).
-- `enhance.parallax: true` when `Parallax/` is complete; overlay/mood only per the ask-user gate
-  → `references/fx-parallax.md`.
+- No parallax key: `Parallax/` clips link on their own, stills without a clip render as Ken Burns.
+  `enhance.parallax` + `parallax_on_box` only when the user asked for on-box depth. Overlay/mood only
+  per the ask-user gate → `references/fx-parallax.md`.
 - `render.bitrate_cap: 2500k` for long episodes (≥ ~2h), `2200k` for ≥ ~3.5h (kaggle-runbook.md).
 - Description template: build `<stem>_DESCRIPTION_TEMPLATE.txt` from the previous episode's
   rendered description.

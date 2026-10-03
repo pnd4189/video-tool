@@ -96,8 +96,8 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
 - **2.5D parallax, local numpy path = opt-in `enhance.parallax: true`** (independent of tier;
   DepthAnything V2-Small, CPU torch build, `local_files_only`; DepthFlow rejected locally — pyaudio
   needs sudo). *(2026-06-15.)* → fx-parallax.md
-- **Pre-rendered DepthFlow clips = `/parallax-video` + `parallax-link`**, separate from
-  `enhance.parallax`; a still without a clip stays Ken Burns. *(2026-06-18.)*
+- **Pre-rendered DepthFlow clips = `/parallax-video` + `parallax-link`**, a still without a clip stays Ken
+  Burns *(2026-06-18)*; `Parallax/` optional on Kaggle too, depth needs `parallax_on_box` *(2026-10-03)*.
 - **Progress bar removed from every job** (`enhance.progress_bar` validates but renders nothing).
   *(2026-06-15.)*
 - **Group-A mood FX** (`enhance.mood` clean/melancholy/cozy/horror/action → vignette/grain/glow/
