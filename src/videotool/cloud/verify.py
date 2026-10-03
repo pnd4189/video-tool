@@ -8,7 +8,7 @@ import re
 from videotool.cloud import remote
 from videotool.cloud.config import REMOTE_TIMEOUT_S
 from videotool.cloud.remote import Runner
-from videotool.creative.standin import mvhd_seconds
+from videotool.creative.media_headers import mvhd_seconds
 
 DURATION_TOLERANCE_S = 2.0
 CJK = re.compile(r"[一-鿿]")
