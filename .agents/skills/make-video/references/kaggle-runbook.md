@@ -59,8 +59,10 @@ architecture: `docs/cloud-render-setup.md`. Sources: memories `render-on-kaggle-
    wins on resume, so the change would silently not apply (ĐS22's intro card). `--fresh` deletes
    only that episode's checkpoint, never another episode's.
 
-Code freshness is checked by stage itself (module md5 vs origin/main) — if it blocks, deploy first
-(push main, then `rclone copyto` the 3 Colab modules to `_VIDEOTOOL_SHARED/`).
+Code freshness is checked by stage itself (module md5 vs origin/main; `src/`/`Colab/` committed but
+not on main; and, since 2026-10-03, edited or new but uncommitted — lint runs the working tree, the
+box installs main) — if it blocks, deploy first (commit, push main, then `rclone copyto` the 3
+Colab modules to `_VIDEOTOOL_SHARED/`). Render-only agents cannot commit: stop and tell the user.
 
 ## Size cap
 
