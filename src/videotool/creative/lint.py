@@ -22,6 +22,7 @@ import yaml
 from videotool.creative import lint_checks as lc
 from videotool.creative import lint_shape
 from videotool.creative.apply import OVERLAY_LIBRARY, SFX_LIBRARY, apply_creative, infer_pack
+from videotool.creative.description_preview import description_preview
 from videotool.creative.parallax import keep_title_cards_static, story_stills
 from videotool.creative.prepare import prepare_job, read_job, run_cli, write_job
 from videotool.creative.rules import CreativeError
@@ -66,26 +67,6 @@ def _rel(job_dir: Path, value: str | None) -> str | None:
         return path.relative_to(job_dir).as_posix()
     except ValueError:  # outside the job folder: check_inputs reports it
         return None
-
-
-def _description(job_dir: Path, data: dict, cta_s: float) -> str | None:
-    from videotool.package.youtube import format_chapters_block, render_description_template
-    from videotool.render.cta_compose import offset_chapters
-
-    named = (data.get("inputs") or {}).get("description_template")  # the box's choice, first
-    template = job_dir / named if named and (job_dir / named).is_file() else \
-        next(iter(sorted(job_dir.glob("*_DESCRIPTION_TEMPLATE.txt"))), None)
-    if template is None:
-        return None
-    chapters_path = job_dir / "outputs" / "chapters.json"
-    chapters = [(c["start"], c["title"]) for c in json.loads(chapters_path.read_text(encoding="utf-8"))] \
-        if chapters_path.exists() else []
-    project = data.get("project") or {}
-    return render_description_template(
-        template.read_text(encoding="utf-8"),
-        chapters_block=format_chapters_block(offset_chapters(chapters, cta_s) if cta_s else chapters),
-        recap_prev=project.get("recap_previous", ""), summary=project.get("description", ""),
-    )
 
 
 def _prepare(job: Path, creative: dict, sfx_library: Path, overlay_library: Path) -> dict:
@@ -160,7 +141,7 @@ def _run_checks(report, source, job, creative, data, standin, cta, series_path, 
     entry = match_series(load_series(registry), standin.files) if registry else None
     if registry is None:
         report.warnings.append("series.yaml not found — title/metadata not checked")
-    report.description = _description(job, data, cta_s)
+    report.description = description_preview(job, data, cta_s)
     prev_title = None
     if "Output/description.txt" in standin.files:  # this episode's own published title
         lines = read_head(source, "Output/description.txt", 4096).decode("utf-8", errors="replace").splitlines()
