@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from videotool.runs import state
 from videotool.runs import hook as hook_mod
@@ -135,3 +136,17 @@ def test_start_stays_quiet_when_nothing_is_pending(tmp_path, monkeypatch):
     monkeypatch.setattr("videotool.agent.lessons.pending", lambda *a, **k: 0)
     runner = FakeRunner({("systemctl", "--user", "is-active"): (0, "active"), ("git", "-C"): (0, "")})
     assert hook_mod.start_context(runner) == ""
+
+
+def test_install_service_gives_the_watcher_a_path_that_reaches_kaggle(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runner = FakeRunner()
+    unit = hook_mod.install_service(runner, Path("/venv/bin/videotool"))
+    assert unit == tmp_path / ".config/systemd/user/videotool-watchd.service"
+    text = unit.read_text(encoding="utf-8")
+    service = text.split("[Service]\n", 1)[1].split("\n\n", 1)[0].splitlines()
+    path_line = next(line for line in service if line.startswith("Environment=PATH="))
+    assert path_line.removeprefix("Environment=PATH=").split(":")[0] == "%h/.local/bin"  # `kaggle` lives here
+    assert "/usr/bin" in path_line                                                        # rclone, git, systemctl
+    assert "ExecStart=/venv/bin/videotool cloud watchd" in service
+    assert runner.seen("systemctl", "--user", "enable", "--now", hook_mod.DAEMON_UNIT)

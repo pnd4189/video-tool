@@ -168,6 +168,8 @@ def install_service(runner: Runner, venv_bin: Path) -> Path:
         "Description=videotool Kaggle render watcher (no LLM)\n"
         "After=network-online.target\n\n"
         "[Service]\n"
+        # systemd gives a user service a bare PATH; the watcher runs `kaggle`, which lives in ~/.local/bin.
+        "Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n"
         f"ExecStart={venv_bin} cloud watchd\n"
         "Restart=on-failure\n"
         "RestartSec=30\n\n"
