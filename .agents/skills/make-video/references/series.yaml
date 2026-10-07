@@ -41,3 +41,26 @@ series:
       set_cta_image: false                  # a still would override the animated clip
     description_base: "previous Chap outputs/description.txt"
     status: complete                        # Tập 38 was the last episode (2026-09-14)
+
+  - id: ke-tru-ta
+    name: "Kẻ Trừ Tà"                       # display name; the translation's own heading says "Trừ Ma Nhân" (user 2026-10-06)
+    stem_prefix: "Ke_Tru_Ta_"               # files are still Tap_NN_… until renamed (user 2026-10-07); lint reports "series not in series.yaml" until then
+    channel: "HUYỀN DỊCH CÁC"
+    channel_url: "https://www.youtube.com/@HuyenDichCac"
+    original_author: "Liễu Ám Hoa Minh"
+    copyright: "Bản dịch & sản xuất audio: Huyền Dịch Các. Nguyên tác thuộc về tác giả Liễu Ám Hoa Minh."
+    # No title list yet (user 2026-10-07: written later). Without title_source lint only warns "title not checked";
+    # add `title_source:` when the list exists. Hook formula: HOOK_TITLE_STYLE_GUIDE.md ("Hook | Kẻ Trừ Tà - Tập XX").
+    title_pipe_to_dash: true                # the guide's "|" separator is illegal in Windows file names
+    # Shared horror/mystery pack (user 2026-10-07): Đạo Sĩ's horror stingers without the comedy files + 19
+    # Kẻ Trừ Tà foley files (ktt-*). Default pack for new horror / mystery series; Đạo Sĩ is complete and keeps dao-si.
+    sfx_pack: linh-di
+    # Tập NN = chương (NN-1)*12+1 .. NN*12; Tập 29 = 337-356 (20 chương). 356 chương, 29 tập (user 2026-10-07).
+    srt_chapter_numbering: absolute         # checked in Tap_02_Ch013-Ch024_vi_qa.srt: headings read "Chương 13"…"Chương 24"
+    cta:
+      intro: "CTA voice/cta-intro-v2.mp4"   # 15.49s, Remotion + OmniVoice clone of linhdi-2 (2026-10-07)
+      outro: "CTA voice/cta-outro-v2.mp4"   # 16.81s
+      set_cta_image: false                  # a still would override the animated clip
+    # No description_base yet: Tập 1 builds its template from Đạo Sĩ's rendered description (same channel, same
+    # footer/hashtag layout) with the title, blurb, genre line and tags rewritten for Kẻ Trừ Tà.
+    status: ongoing

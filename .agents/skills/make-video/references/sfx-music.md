@@ -12,11 +12,25 @@ numbers as seconds (dao-si-chap18 put one cue 228s off that way).
 
 ## SFX library
 
-`~/.local/share/videotool/sfx/<pack>/` — `binh-thien` (12 files, kiếm hiệp / quân sự) and
-`dao-si` (28 files, ma hài: horror stingers + comedy boing/scratch/pop). Pack = `sfx_pack` in
-series.yaml. Filenames must match the pack exactly, prefix included
-(`freesound_community-owl-hooting-48028.mp3`). Masters on gdrive (`1. sfx Binh thien sach`,
-`2. sfx Dao Si`); re-stage with `rclone copy`, never FUSE `cp`.
+`~/.local/share/videotool/sfx/<pack>/` — `binh-thien` (12 files, kiếm hiệp / quân sự),
+`dao-si` (28 files, ma hài: horror stingers + comedy boing/scratch/pop) and `linh-di` (40 files,
+shared pack for horror / detective stories without comedy, the default for new series of that genre:
+21 `dao-si` horror files + 19 `ktt-*` files generated for Kẻ Trừ Tà; Đạo Sĩ itself is finished). Pack = `sfx_pack` in series.yaml. Filenames must match the pack
+exactly, prefix included (`freesound_community-owl-hooting-48028.mp3`). Masters on gdrive
+(`1. sfx Binh thien sach`, `2. sfx Dao Si`; the `ktt-*` files of `linh-di` in
+`3. Kẻ Trừ Tà/BRAND-PACK-AUDIO-VA-MO-TA/SFX-FINAL`, where `ktt-21-…` is still named `ktt-XX-…`);
+re-stage with `rclone copy`, never FUSE `cp`. The Kaggle kernel copies the whole library from
+`gdrive:_VIDEOTOOL_SHARED/sfx` (`Colab/videotool-render.ipynb` setup cell), so a new or changed
+pack must be mirrored there with `rclone copy ~/.local/share/videotool/sfx/<pack>
+gdrive:_VIDEOTOOL_SHARED/sfx/<pack>` before staging, otherwise the render box has no such pack.
+
+`linh-di` *(user, 2026-10-07)*: left out of `dao-si` — the 6 comedy files (Cartoon Boing, Concussive
+Hit Guitar Boing, creatorshome-sharp-pop, freesound pop-91931, soundreality-pop, dj-scratch) and
+`running-in-grass` (−47 dB). The `ktt-*` files were generated with Flow Music / Lyria 3.5, cut to
+10-12 s (knocks 3.5 s) and peak-normalised to −4 dBFS, so a cue at `gain_db` ≈ −12 sits at the
+usual −16 dBFS; voice-band files (`ktt-06`, `ktt-07`, `ktt-20`, `ktt-21`) go lower (≈ −20..−24).
+`ktt-15-paper-fish-flutter` is a stop-gap (high-passed drone, no real paper rustle); prompts 03
+(hand bell) and 17 (child giggle) are not generated yet.
 
 Loudness spread is −11..−47 dB mean across files, so set `gain_db` per cue from the file's measured
 `max_volume`, aiming at a peak ≈ −16 dBFS. Too quiet raw (big gain needed, or skip):
