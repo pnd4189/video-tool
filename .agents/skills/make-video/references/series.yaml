@@ -52,10 +52,12 @@ series:
     copyright: "Bản dịch & sản xuất audio: Huyền Dịch Các. Nguyên tác thuộc về tác giả Liễu Ám Hoa Minh."
     # No verified title list yet. agy's KTT_YOUTUBE_TITLE_HOOKS_29_TAP.md (2026-10-08) is NOT a title_source: its
     # hooks run 8-14 words and its social-proof labels are wrong ("8.3 Douban" is Blatty's The Exorcist, Thiên Nhai
-    # is Đạo Sĩ's platform). Formula = the channel's Đạo Sĩ titles: "<proof>: <hook 4-6 words> | Kẻ Trừ Tà - Tập N"
-    # (user 2026-10-08). Verified proof only: Douban 8.2 (book 1, 2,020 ratings) / 8.4 (book 2), Qidian, 1,386,697
-    # chữ, finished 2007 (Baidu Baike + book.douban.com, checked 2026-10-08). Tập 1 = "Đình đám Douban 8.2: Cô là
-    # người thứ sáu | Kẻ Trừ Tà - Tập 1". Without title_source lint only warns "title not checked".
+    # is Đạo Sĩ's platform). Formula = the channel's Đạo Sĩ titles: "<proof>: <short hook> | Kẻ Trừ Tà - Tập N".
+    # User 2026-10-08: the proof is worded hype, no score ("8.2" did not pull); a hook a NEW viewer understands
+    # (tập 1 = the opening premise, not a mid-episode line like "Cô là người thứ sáu"). Claims must stay true:
+    # Douban 8.2 (book 1, 2,020 ratings) / 8.4 (book 2), Qidian, 1,386,697 chữ, finished 2007, still reprinted
+    # (Baidu Baike + book.douban.com + 163.com, checked 2026-10-08). Tập 1 = "Truyện ma kinh điển Trung Quốc: Vụ
+    # án thầy giáo bị quỷ nhập | Kẻ Trừ Tà - Tập 1". Without title_source lint only warns "title not checked".
     title_pipe_to_dash: true                # the guide's "|" separator is illegal in Windows file names
     # Shared horror/mystery pack (user 2026-10-07): Đạo Sĩ's horror stingers without the comedy files + 19
     # Kẻ Trừ Tà foley files (ktt-*). Default pack for new horror / mystery series; Đạo Sĩ is complete and keeps dao-si.
