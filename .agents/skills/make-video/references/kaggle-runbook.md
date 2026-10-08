@@ -89,6 +89,12 @@ User ceiling is 4.5 GB. 2-3.5h episodes → 2500k (the default 2800k overshoots 
   `GIT_TERMINAL_PROMPT=0 GIT_CONFIG_GLOBAL=/dev/null git ls-remote https://github.com/pnd4189/video-tool main`.
 - `No render job config … Nothing to render`: the config was not staged (harmless, no quota spent).
 - `No user secrets exist … RCLONE_CONF`: the secret is not attached — the user toggles it in the UI.
+- Watcher flaps `watch-error`↔`staged` with "No such file or directory: 'kaggle'": the user unit lacks
+  `~/.local/bin` in PATH. Fixed in the installer (`48d4315`); re-run `videotool renders install-daemon`
+  on an old unit. A render that finished while the watcher was blind stays `staged` for good —
+  `_staged` ignores COMPLETE on purpose (a stale COMPLETE from an older run must not be verified as
+  this one). Rescue by hand: `run_state.transition(state, "verifying")`, save, then `watch.step()`
+  verifies and cleans the config (chap64, 2026-10-07).
 - Resume = the user clicks Save & Run All again. Everything prepare_job created is re-materialized
   by `_ensure_prepare_artifacts` (fixed `bcef822`, `3754fbf`, `4122ec1`).
 
