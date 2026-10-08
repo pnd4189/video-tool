@@ -1,7 +1,7 @@
 ---
 name: make-video
-description: "Render an audio-story YouTube episode (Bình Thiên Sách, Đạo Sĩ Sợ Ma, …) from an asset folder, on Kaggle (default) or locally: author the creative layer, stage, render, verify, publish. Use when the user says render / make video / render on Kaggle, or points at a Chap folder."
-argument-hint: "<folder path or Drive link> [hints: GPU|TPU|local, overlay/FX, title, shorts]"
+description: "Render an audio-story YouTube episode (Bình Thiên Sách, Đạo Sĩ Sợ Ma, …) from an asset folder, on Kaggle (default), Modal (backup) or locally: author the creative layer, stage, render, verify, publish. Use when the user says render / make video / render on Kaggle / render on Modal, or points at a Chap folder."
+argument-hint: "<folder path or Drive link> [hints: GPU|TPU|Modal|local, overlay/FX, title, shorts]"
 ---
 
 # make-video
@@ -39,6 +39,9 @@ Everything else: decide, act, report at the end.
   self-written `render_job.json`, no direct `rclone` of the config/creative to `_VIDEOTOOL_SHARED`
   (that skips lint, the guards and the watcher; CHAP 3 failed on Kaggle twice exactly that way).
   Tell the user to click Run only after `videotool renders` shows the slug as `staged`.
+- Modal spends a prepaid credit: run it only when the user named Modal in this request, do the budget
+  checklist and have the user confirm the limits once per session (`references/modal-runbook.md`).
+  agy's guard does not block `modal`; the discipline is yours.
 - In agy a `PreToolUse` guard enforces that list (`videotool agent guard`). A block is final: read
   the reason, stop, and tell the user — do not look for another way round it. Your own working
   folder is `plans/scratch-<slug>/`; the staged copy under `$HOME/.cache/videotool/<name>` and
@@ -148,6 +151,19 @@ rclone copy "$STAGE/outputs" "$REMOTE/Output"
 ```
 Run the render in the background and watch the PID, not the file. After a verified publish, delete
 `$STAGE` only. Shorts only on request: add `{preset: shorts-9x16}` to `outputs:` and `render --all`.
+
+## Step 4c — Modal render (backup runtime, user says "Modal")
+
+Kaggle is #1, Modal #2, Colab #3. Modal only renders: the job is prepared and finished locally, no Drive
+credentials go to Modal. Everything (budget checklist, commands, expected signals, cleanup) is in
+`references/modal-runbook.md` — read it before the first command. Shape:
+
+```bash
+videotool prepare "$STAGE" --target cloud --creative "$STAGE/creative.yaml"   # after rclone copy + lint
+VT_JOB_DIR="$STAGE" VT_SLUG=<slug> modal run .agents/skills/make-video/scripts/modal_render.py
+modal volume get vt-<slug> / "$STAGE-dl" --force   # then modal volume delete vt-<slug> --yes
+videotool sfx "$STAGE/job.yaml" && videotool package "$STAGE/job.yaml" && videotool metadata "$STAGE/job.yaml"
+```
 
 ## Step 5 — Verify and report
 

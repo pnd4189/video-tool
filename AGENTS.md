@@ -11,12 +11,12 @@ thumbnail**. Visuals exist only to defeat YouTube's static-frame penalty. Speed-
 
 ## Entry points
 
-- Render an episode (Kaggle or local): `.agents/skills/make-video/SKILL.md`
+- Render an episode (Kaggle, Modal or local): `.agents/skills/make-video/SKILL.md`
   (Claude: `/make-video <folder> [hints]`; agy/codex: the `make-video` skill).
 - Local render with pre-rendered parallax clips: `.agents/skills/parallax-video/SKILL.md`.
 - References (load only when the step needs them): `.agents/skills/make-video/references/`
   — `kaggle-runbook.md`, `sfx-music.md`, `description-metadata.md`, `fx-parallax.md`,
-  `pitfalls.md`, `series.yaml`, `lessons-inbox.md`.
+  `pitfalls.md`, `series.yaml`, `lessons-inbox.md`, `modal-runbook.md`.
 - Cloud architecture and setup: `docs/cloud-render-setup.md`, `docs/cloud-gpu-whisper-setup.md`.
 
 ## Asset folder convention (short)
@@ -107,8 +107,8 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
   Masters stay on gdrive `KHÁC/HIỆU ỨNG VIDEO/`. *(2026-06-18; durable dir 2026-06-21.)* → fx-parallax.md
 - **Full cloud render on Kaggle** (`Colab/cloud_render_runner.py`): the agent authors `creative.yaml`
   locally, the box runs no LLM (the on-box LLM is only an `autonomous=True` fallback), NVENC or
-  x264 with resumable Drive checkpoints, results publish to the source folder. Kaggle primary,
-  Colab fallback. *(2026-07-11.)* → kaggle-runbook.md
+  x264 with resumable Drive checkpoints, results publish to the source folder. Order: Kaggle 1st,
+  Modal 2nd (modal-runbook.md), Colab 3rd. *(2026-07-11; order 2026-10-07.)* → kaggle-runbook.md
 - **Local and cloud job preparation merge into one package step** (`videotool.creative`, driven by
   `videotool prepare` / `Colab/cloud_director.py`; `videotool creative lint` + `sfx-pin` check the
   same rules before staging). Reverses the 2026-07-11 "local flow byte-unchanged, cloud is a
