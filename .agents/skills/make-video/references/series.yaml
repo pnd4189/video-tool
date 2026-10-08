@@ -10,7 +10,8 @@ series:
     channel_url: "https://www.youtube.com/@ChinhDichDuongVN"
     original_author: "Vô Tội"
     copyright: "Bản dịch & sản xuất audio: Chính Dịch Đường. Nguyên tác thuộc về tác giả Vô Tội."
-    # PHẦN 2, column 2 in backticks: "Bình Thiên Sách Tập NN: Hook!" (v2.2, applies from Tập 49).
+    # PHẦN 2, column 2 in backticks. Tập 49-63: "Bình Thiên Sách Tập NN: Hook!"; from Tập 64 the full line
+    # "[Tập NN] Bình Thiên Sách - Vô Tội - Hook! - Truyện Audio Tiên Hiệp - Chính Dịch Đường" (checked 2026-10-07).
     title_source: "/home/dung/cloud/gdrive/1. YOUTUBE AUDIO/BÌNH THIÊN SÁCH/BINH THIEN SACH - VO TOI/BẢN DỊCH/3. HOOK/youtube-title-list-binh-thien-sach-MOBILE-OPTIMIZED-tap-01-90.md"
     title_pipe_to_dash: false
     sfx_pack: binh-thien
@@ -44,23 +45,29 @@ series:
 
   - id: ke-tru-ta
     name: "Kẻ Trừ Tà"                       # display name; the translation's own heading says "Trừ Ma Nhân" (user 2026-10-06)
-    stem_prefix: "Ke_Tru_Ta_"               # files are still Tap_NN_… until renamed (user 2026-10-07); lint reports "series not in series.yaml" until then
+    stem_prefix: "Ke_Tru_Ta_"               # Ke_Tru_Ta_<first>_<last>[_vi|_vi_qa|…] by chapter range, like the other series (renamed from Tap_NN_Ch… 2026-10-07)
     channel: "HUYỀN DỊCH CÁC"
     channel_url: "https://www.youtube.com/@HuyenDichCac"
     original_author: "Liễu Ám Hoa Minh"
     copyright: "Bản dịch & sản xuất audio: Huyền Dịch Các. Nguyên tác thuộc về tác giả Liễu Ám Hoa Minh."
-    # No title list yet (user 2026-10-07: written later). Without title_source lint only warns "title not checked";
-    # add `title_source:` when the list exists. Hook formula: HOOK_TITLE_STYLE_GUIDE.md ("Hook | Kẻ Trừ Tà - Tập XX").
+    # No verified title list yet. agy's KTT_YOUTUBE_TITLE_HOOKS_29_TAP.md (2026-10-08) is NOT a title_source: its
+    # hooks run 8-14 words and its social-proof labels are wrong ("8.3 Douban" is Blatty's The Exorcist, Thiên Nhai
+    # is Đạo Sĩ's platform). Formula = the channel's Đạo Sĩ titles: "<proof>: <hook 4-6 words> | Kẻ Trừ Tà - Tập N"
+    # (user 2026-10-08). Verified proof only: Douban 8.2 (book 1, 2,020 ratings) / 8.4 (book 2), Qidian, 1,386,697
+    # chữ, finished 2007 (Baidu Baike + book.douban.com, checked 2026-10-08). Tập 1 = "Đình đám Douban 8.2: Cô là
+    # người thứ sáu | Kẻ Trừ Tà - Tập 1". Without title_source lint only warns "title not checked".
     title_pipe_to_dash: true                # the guide's "|" separator is illegal in Windows file names
     # Shared horror/mystery pack (user 2026-10-07): Đạo Sĩ's horror stingers without the comedy files + 19
     # Kẻ Trừ Tà foley files (ktt-*). Default pack for new horror / mystery series; Đạo Sĩ is complete and keeps dao-si.
     sfx_pack: linh-di
     # Tập NN = chương (NN-1)*12+1 .. NN*12; Tập 29 = 337-356 (20 chương). 356 chương, 29 tập (user 2026-10-07).
-    srt_chapter_numbering: absolute         # checked in Tap_02_Ch013-Ch024_vi_qa.srt: headings read "Chương 13"…"Chương 24"
+    srt_chapter_numbering: absolute         # checked in Ke_Tru_Ta_0013_0024_vi_qa.srt: headings read "Chương 13"…"Chương 24"
     cta:
-      intro: "CTA voice/cta-intro-v2.mp4"   # 15.49s, Remotion + OmniVoice clone of linhdi-2 (2026-10-07)
-      outro: "CTA voice/cta-outro-v2.mp4"   # 16.81s
+      intro: "CTA voice/cta-intro-v3.mp4"   # 15.488s, Remotion + OmniVoice clone of linhdi-2; v3 replaced v2 for Tập 1 (2026-10-08)
+      outro: "CTA voice/cta-outro-v3.mp4"   # 16.81s
       set_cta_image: false                  # a still would override the animated clip
-    # No description_base yet: Tập 1 builds its template from Đạo Sĩ's rendered description (same channel, same
-    # footer/hashtag layout) with the title, blurb, genre line and tags rewritten for Kẻ Trừ Tà.
+    # Template with {{SUMMARY}}/{{RECAP_PREV}}/{{CHAPTERS}} kept from Tập 1 (Douban and AI-disclosure lines fixed
+    # 2026-10-08). Copy it as <stem>_DESCRIPTION_TEMPLATE.txt and change only the title line and the "tập N" tag.
+    # Tập 1's own rendered description has no recap block — do not use it as the base.
+    description_base: "Chap 1/Ke_Tru_Ta_DESCRIPTION_TEMPLATE_BASE.txt"
     status: ongoing
