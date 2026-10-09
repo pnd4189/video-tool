@@ -37,6 +37,14 @@ median 0.99, p10-p90 0.94-1.03), glossary names used, address shifts to anh/em a
 Titles of 160 and 172 were aligned with their (Thượng) halves 159 and 171. Merged into the 7 tập as plain `_vi.txt`;
 the incomplete vi files are in `_archive/split-vi-thieu-chuong-20261009/`.
 
+## Done 2026-10-10
+Tập 12, 13, 14, 15, 18, 19, 26 got `_vi_qa.txt` and full image prompts (300 scenes each, Gemini 3.8 Flash High, run by
+agy), checked for chapter coverage, scene numbering and stray CJK, then moved into `split/`; the `_THIEU-CHUONG-`
+prompt files are in `_archive/split-prompts-thieu-chuong-20261009/`. Music was reallocated for 27 tập by agy
+(`KTT_BGM_COMBO_MAPPING_27_TAP.md`); unused tracks and the 29-tập mapping copies were moved to
+`3. Kẻ Trừ Tà/_archive/music-cu-29-tap/`. Tập 11-27 titles are in `KTT_YOUTUBE_TITLES_TAP_11-27.md` (praise lines
+and two hooks reworked after review).
+
 ## Open
-- Generate image prompts for the 19 restored chapters; the 7 prompt files keep `_THIEU-CHUONG-` until then.
+- Tập 14 prompts keep one Chinese-name mention ('司马南' on an embroidered robe) as a literal detail of the scene.
 - Chap folders, BGM mapping and arc thumbnails were planned for 29 tập; recheck against 27 tập.
