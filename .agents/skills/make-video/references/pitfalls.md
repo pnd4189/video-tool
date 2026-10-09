@@ -29,6 +29,10 @@ seen. New lessons do NOT go here directly — see lessons-inbox.md.
   prompts/text and look at image 1 (chap-15-program-format-from-chap31).
 - Source text jumps (missing scene between chapters) or an image with baked-in text → report to the
   user; do not fix sources yourself (dao-si-chap32, dao-si-chap38).
+- Checking a source txt for repeated or missing chapters: comparing the file with itself finds repeats
+  but hides gaps. Compare against the publisher's table of contents with per-chapter character counts
+  (Qidian lists them) and a second full-text copy before calling it complete (ke-tru-ta source,
+  2026-10-09: a "dedupe" to 308 chapters missed 19 absent chapters; the real count was 327).
 
 ## Prepare (job.yaml / creative.yaml)
 

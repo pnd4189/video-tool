@@ -118,6 +118,12 @@ first launch**, and give the worst case: rate × `timeout` × (retries + 1) × c
   Volume only after the render, so Chap 65 lost 226/236 clips (16 min, ~$0.33) when its container was
   preempted and the restart rendered from clip 1 (`binh-thien-chap65-modal.log`, "Container terminated
   due to preemption"). Budget one restart; a mid-render Volume checkpoint would need a script change.
+- The slow step is uploading the job folder (~1.3 GB, mostly `Parallax/` + WAV, ~0.8 MB/s), not the
+  image build. If no `Created objects` line and no upload progress appear for 10 min after `Built image`,
+  Ctrl-C (app stops, no GPU cost) and rerun: Modal keeps the blobs already sent, so the retry uploads
+  almost nothing. `MODAL_LOGLEVEL=DEBUG` shows the upload lines. The `modal` CLI is `~/.local/bin/modal`,
+  not in `.venv` (`ke-tru-ta-chap01-modal-try1.log` hung ~30 min at 786 MB; the rerun reached render
+  start in under a minute).
 
 ## Other probes (2026-10-05, not part of the render flow)
 
