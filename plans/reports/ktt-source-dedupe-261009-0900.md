@@ -47,4 +47,3 @@ and two hooks reworked after review).
 
 ## Open
 - Tập 14 prompts keep one Chinese-name mention ('司马南' on an embroidered robe) as a literal detail of the scene.
-- Chap folders, BGM mapping and arc thumbnails were planned for 29 tập; recheck against 27 tập.
