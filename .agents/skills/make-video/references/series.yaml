@@ -64,7 +64,12 @@ series:
     # Shared horror/mystery pack (user 2026-10-07): Đạo Sĩ's horror stingers without the comedy files + 19
     # Kẻ Trừ Tà foley files (ktt-*). Default pack for new horror / mystery series; Đạo Sĩ is complete and keeps dao-si.
     sfx_pack: linh-di
-    # Tập NN = chương (NN-1)*12+1 .. NN*12; Tập 29 = 337-356 (20 chương). 356 chương, 29 tập (user 2026-10-07).
+    # Tập NN = chương (NN-1)*12+1 .. NN*12; 327 chương truyện chính in 27 tập, Tập 27 = 313-327 (15 chương). The
+    # canonical list is Qidian's TOC (book 63011) checked chapter by chapter against its character counts and the novel101
+    # full text: the old 356-entry txt also held 19 preview repeats, 14 外传 and 1 double post, put wrong text under 19
+    # titles and lacked 19 chapters. Source folder: Drive NGUỒN TRUYỆN/Truyện chưa dịch - txt/6.1. Kẻ trừ tà/split (zh, vi,
+    # vi_qa, image prompts, CANON_MAP.txt); files with _THIEU-CHUONG- still miss the 19 restored chapters, which wait in
+    # split/_bo-sung-can-dich/ for translation. Tập 1-7 (chương 1-84) are unchanged. (user 2026-10-09)
     srt_chapter_numbering: absolute         # checked in Ke_Tru_Ta_0013_0024_vi_qa.srt: headings read "Chương 13"…"Chương 24"
     cta:
       intro: "CTA voice/cta-intro-v3.mp4"   # 15.488s, Remotion + OmniVoice clone of linhdi-2; v3 replaced v2 for Tập 1 (2026-10-08)
