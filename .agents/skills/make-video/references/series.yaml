@@ -68,8 +68,9 @@ series:
     # canonical list is Qidian's TOC (book 63011) checked chapter by chapter against its character counts and the novel101
     # full text: the old 356-entry txt also held 19 preview repeats, 14 外传 and 1 double post, put wrong text under 19
     # titles and lacked 19 chapters. Source folder: Drive NGUỒN TRUYỆN/Truyện chưa dịch - txt/6.1. Kẻ trừ tà/split (zh, vi,
-    # vi_qa, image prompts, CANON_MAP.txt); files with _THIEU-CHUONG- still miss the 19 restored chapters, which wait in
-    # split/_bo-sung-can-dich/ for translation. Tập 1-7 (chương 1-84) are unchanged. (user 2026-10-09)
+    # vi_qa, image prompts, CANON_MAP.txt). The 19 restored chapters were translated with cli-tran --series ke-tru-ta
+    # and merged into the vi files; image-prompt files named _THIEU-CHUONG- still lack scenes for them. Tập 1-7
+    # (chương 1-84) are unchanged. (user 2026-10-09)
     srt_chapter_numbering: absolute         # checked in Ke_Tru_Ta_0013_0024_vi_qa.srt: headings read "Chương 13"…"Chương 24"
     cta:
       intro: "CTA voice/cta-intro-v3.mp4"   # 15.488s, Remotion + OmniVoice clone of linhdi-2; v3 replaced v2 for Tập 1 (2026-10-08)

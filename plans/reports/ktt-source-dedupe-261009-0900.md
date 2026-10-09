@@ -30,8 +30,13 @@ chapters were read by hand (18 moved 1-10 scenes from the automatic guess) and c
 some prompt files carry. Tags the generator got wrong (scene 220 of old 0265_0276 says chapter 272, the text puts the
 door kick at the end of 271) were relabelled to the scene's own chapter. The 19 restored chapters have no prompts yet.
 
+## Restored chapters translated (2026-10-09)
+cli-tran (`--series ke-tru-ta`, Gemini 3.1 Pro High) translated all 19, none flagged for review. Checked: no CJK,
+no em dash, every chapter ends on a full sentence, 0.92-1.03 vi words per zh character (the other 308 chapters:
+median 0.99, p10-p90 0.94-1.03), glossary names used, address shifts to anh/em at the confession in 306 as 307 does.
+Titles of 160 and 172 were aligned with their (Thượng) halves 159 and 171. Merged into the 7 tập as plain `_vi.txt`;
+the incomplete vi files are in `_archive/split-vi-thieu-chuong-20261009/`.
+
 ## Open
-- Translate `split/_bo-sung-can-dich/Ke_Tru_Ta_bo_sung_19_chuong.txt` with the series pipeline
-  (`run-folder.sh <dir> --series ke-tru-ta`); `GLOSSARY_bo_sung.json` lists the names the existing translation uses.
-  Then merge into the 7 `_THIEU-CHUONG-` tập and generate prompts for those chapters.
+- Generate image prompts for the 19 restored chapters; the 7 prompt files keep `_THIEU-CHUONG-` until then.
 - Chap folders, BGM mapping and arc thumbnails were planned for 29 tập; recheck against 27 tập.
