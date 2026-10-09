@@ -18,8 +18,11 @@ seen. New lessons do NOT go here directly — see lessons-inbox.md.
   image (chap30, chap38, chap39, dao-si-chap15).
 - Thumbnail missing or a byte copy of an older tập (compare md5) → render without `intro_image` and
   tell the user; never reuse another tập's card (dao-si-chap34, dao-si-chap35).
-- ĐẠO SĨ CTA v2 files (`cta-intro-v2.mp4`) do not match auto-detect → set `intro_cta`/`outro_cta`;
-  never set `*_cta_image` (a still overrides the animated clip) (dao-si-chap30).
+- CTA auto-detect takes the first file in `CTA voice/` whose name contains `cta-intro` / `cta-outro`
+  (video before audio, sorted by name), so with several versions side by side (`cta-intro.mp4` +
+  `cta-intro-v2.mp4`) it may pick the wrong one → set `intro_cta`/`outro_cta` explicitly; never set
+  `*_cta_image` (a still overrides the animated clip) (dao-si-chap30; `creative/detect.py`
+  `_first_match`, ke-tru-ta-chap01 picked `cta-intro-v3.mp4` on its own).
 - Bình Thiên CTA: use `… - with voice.mp4`; the plain `Intro CTA.mp4` is silent
   (binh-thien-cta-with-voice-variant).
 - Wrong content under a right filename (Chap 33 held chương 311-320) → spot-check chapter numbers in
