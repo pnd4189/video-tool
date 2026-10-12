@@ -1,7 +1,7 @@
 ---
 name: make-video
 description: "Render an audio-story YouTube episode (Bình Thiên Sách, Đạo Sĩ Sợ Ma, …) from an asset folder, on Kaggle (default), Modal (backup) or locally: author the creative layer, stage, render, verify, publish. Use when the user says render / make video / render on Kaggle / render on Modal, or points at a Chap folder."
-argument-hint: "<folder path or Drive link> [hints: GPU|TPU|Modal|local, overlay/FX, title, shorts]"
+argument-hint: "<folder path or Drive link> [hints: GPU|TPU|CPU|Modal|local, overlay/FX, title, shorts]"
 ---
 
 # make-video
@@ -33,8 +33,9 @@ Everything else: decide, act, report at the end.
 - Never `rm`/`mv`/overwrite anything on the gdrive mount (`/home/dung/cloud/gdrive/…`) or on Drive
   except: the per-episode files you stage (creative, template, config) and your own
   `render_job*.json` cleanup. Local deletes only under `$HOME/.cache/videotool/<name>`.
-- Never `kaggle kernels push`, never edit repo code/workflow files, never `git commit`/`push`, never
-  `pip install`. If code looks wrong or stale, stop and tell the user.
+- Never run `kaggle kernels push` yourself (the one pusher is the CPU-lane script of Step 4d, and only
+  for its own private `videotool-cpu-*` kernels), never edit repo code/workflow files, never
+  `git commit`/`push`, never `pip install`. If code looks wrong or stale, stop and tell the user.
 - A blocked `cloud stage` is FINAL: report the ERROR/BLOCK lines and stop. Never stage by hand — no
   self-written `render_job.json`, no direct `rclone` of the config/creative to `_VIDEOTOOL_SHARED`
   (that skips lint, the guards and the watcher; CHAP 3 failed on Kaggle twice exactly that way).
@@ -163,6 +164,16 @@ videotool prepare "$STAGE" --target cloud --creative "$STAGE/creative.yaml"   # 
 VT_JOB_DIR="$STAGE" VT_SLUG=<slug> modal run .agents/skills/make-video/scripts/modal_render.py
 modal volume get vt-<slug> / "$STAGE-dl" --force   # then modal volume delete vt-<slug> --yes
 videotool sfx "$STAGE/job.yaml" && videotool package "$STAGE/job.yaml" && videotool metadata "$STAGE/job.yaml"
+```
+
+## Step 4d — Kaggle CPU render (headless, user says "CPU" / "Kaggle CPU")
+
+No browser click, no GPU/TPU quota, no Drive key on Kaggle: prepared and finished locally like Modal,
+rendered on a private per-episode CPU kernel. Narration ≤ 3.5 h (no resume); ~6 h render for a 2h20
+episode until measured. agy may run it. Read `references/kaggle-cpu-runbook.md` first; dry run, then:
+
+```bash
+.venv/bin/python .agents/skills/make-video/scripts/kaggle_cpu_render.py run "$STAGE" --remote "gdrive:…/Chap NN"
 ```
 
 ## Step 5 — Verify and report
