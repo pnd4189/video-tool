@@ -105,6 +105,8 @@ def _stage_voice_cta(job: JobSpec, job_path: Path, workspace_root: Path) -> _Cta
         intro=(root / job.inputs.intro_cta) if job.inputs.intro_cta else None,
         outro=(root / job.inputs.outro_cta) if job.inputs.outro_cta else None,
     )
+    if composed.outro_gain_db > 0:
+        console.print(f"CTA outro raised {composed.outro_gain_db:+.1f} dB to the narration level")
     # CTA visual: prefer an explicit still, else reuse the CTA clip itself (an animated
     # Intro/Outro CTA.mp4) so the moving card shows instead of a frozen frame. scene_filter
     # plays a video source straight through (motion only applies to stills).

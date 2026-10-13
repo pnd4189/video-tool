@@ -64,7 +64,7 @@ def test_stage_voice_cta_uses_clip_as_visual_fallback(tmp_path: Path, monkeypatc
         services,
         "compose_voice",
         lambda *a, **k: SimpleNamespace(
-            path=tmp_path / "ws" / "voice-cta.flac", intro_seconds=8.0, outro_seconds=10.0
+            path=tmp_path / "ws" / "voice-cta.flac", intro_seconds=8.0, outro_seconds=10.0, outro_gain_db=0.0
         ),
     )
     (tmp_path / "ws").mkdir()

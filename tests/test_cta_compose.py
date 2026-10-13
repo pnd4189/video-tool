@@ -1,10 +1,17 @@
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from videotool.core.job_spec import load_job
 from videotool.core.timeline import compile_timeline
 from videotool.render.cta_compose import (
     _build_concat_command,
+    _loudness,
+    compose_voice,
     offset_chapters,
+    outro_gain_db,
     shift_srt,
 )
 
@@ -15,6 +22,45 @@ def test_concat_command_normalizes_and_concats() -> None:
     assert "aresample=48000" in cmd
     assert "concat=n=3:v=0:a=1[out]" in cmd
     assert "-c:a flac" in cmd
+    assert "volume=" not in cmd
+
+
+def test_concat_command_raises_only_the_outro() -> None:
+    cmd = _build_concat_command([Path("i.mp4"), Path("n.wav"), Path("o.mp4")], Path("out.flac"), [0.0, 0.0, 5.1])
+    graph = cmd[cmd.index("-filter_complex") + 1]
+    assert "[2:a]aresample=48000,aformat=channel_layouts=stereo,volume=5.10dB[a2]" in graph
+    assert graph.count("volume=") == 1
+
+
+@pytest.mark.parametrize(
+    ("narration", "outro", "peak", "gain"),
+    [
+        (-17.0, -22.1, -6.3, 5.1),    # Bình Thiên: 5.1 LU under the voice, headroom 5.3 dB
+        (-17.0, -22.1, -3.0, 2.0),    # never past -1 dBFS sample peak
+        (-17.0, -18.0, -6.0, 0.0),    # within 1.5 LU: left alone
+        (-21.3, -20.2, -6.0, 0.0),    # louder than the voice: never lowered
+        (-10.0, -30.0, -20.0, 12.0),  # capped
+        (None, -22.0, -6.0, 0.0),     # unmeasured: left alone
+    ],
+)
+def test_outro_gain_rules(narration, outro, peak, gain) -> None:
+    assert outro_gain_db(narration, outro, peak) == pytest.approx(gain)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_compose_voice_brings_a_quiet_outro_to_the_narration_level(tmp_path: Path) -> None:
+    def tone(name: str, seconds: int, volume: str) -> Path:
+        path = tmp_path / name
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"sine=f=330:d={seconds}",
+                        "-af", f"volume={volume}", str(path)], check=True)
+        return path
+
+    narration, outro = tone("narration.wav", 20, "-6dB"), tone("outro.wav", 6, "-14dB")
+    composed = compose_voice(narration, tmp_path / "voice.flac", intro=None, outro=outro)
+    assert composed.outro_gain_db == pytest.approx(8.0, abs=0.3)
+    tail = tmp_path / "tail.wav"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", "20.5", "-i", str(composed.path), str(tail)], check=True)
+    assert _loudness(tail)[0] == pytest.approx(_loudness(narration)[0], abs=0.5)
 
 
 def test_shift_srt_offsets_all_timestamps_with_hour_rollover() -> None:

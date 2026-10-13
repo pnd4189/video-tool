@@ -66,7 +66,8 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
 - **WAV-first voice** (`.wav` > `.m4a` > `.mp3`). *(2026-07-03.)*
 - **Yellow subtitles (`enhance.subtitle_color: yellow`) for audio-story only**; default white keeps other
   jobs byte-identical. *(2026-07-03.)*
-- **Audio AAC 256k, loudnorm −14 LUFS.** *(2026-07-03.)*
+- **Audio AAC 256k, loudnorm −14 LUFS.** *(2026-07-03.)* An outro CTA more than 1.5 LU under the voice
+  is raised to the narration level when the voice is composed *(2026-10-13)*. → sfx-music.md
 - **Music schedule + default SFX**: `audio.music_schedule` places a track per story-mood span (unset →
   concat + loop); `enhance.sfx` mixes one-shot SFX after render (`videotool sfx`, `-c:v copy`, not
   ducked, `amix normalize=0` + limiter), default ON, auto-burn, no montage. Beds deferred.
@@ -74,8 +75,7 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
   blocks the stage otherwise *(2026-09-21)*. → sfx-music.md
 - **Tier full opts into overlays** (`--enhance full`: burn captions + bundled particles/progress/
   waveform, one re-encode). Audio-story jobs use per-feature `enhance`, not `--enhance full`.
-- **Motion amplitude 0.30, pan zoom 1.22** (`render/video_filters.py`). Don't lower without asking.
-  *(2026-05-28.)*
+- **Motion amplitude 0.30, pan zoom 1.22** (`render/video_filters.py`). Don't lower without asking. *(2026-05-28.)*
 - **No auto Shorts.** Only `youtube-16x9` unless the user asks. *(2026-05-29.)*
 - **Every published mp4 carries publisher metadata and is named after the episode title**
   (`videotool metadata`, last step). The filename matters (YouTube prefills the title); in-file tags

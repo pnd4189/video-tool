@@ -7,11 +7,21 @@ from pathlib import Path
 
 from videotool.core.errors import DependencyError, RenderError
 from videotool.core.media_probe import probe_media
+from videotool.package.youtube import parse_integrated_lufs
 
 SUBPROCESS_TIMEOUT_SECONDS = 1800
 # Synthetic first chapter covering the intro CTA. YouTube requires the first chapter marker
 # to sit at 00:00, so narration chapters are shifted and this label anchors the start.
 INTRO_CHAPTER_TITLE = "Giới thiệu"
+# An outro CTA quieter than the narration stays quieter after the final loudnorm (dynamic mode keeps
+# level differences inside its loudness-range target): Bình Thiên's outro sat ~5 LU under the voice on
+# published episodes (Tập 70, measured 2026-10-13). It is raised to the narration level — never
+# lowered, never past -1 dBFS sample peak — when the gap is wider than this.
+OUTRO_RAISE_MIN_LU = 1.5
+OUTRO_RAISE_MAX_DB = 12.0
+OUTRO_PEAK_CEILING_DBFS = -1.0
+NARRATION_SAMPLE_SECONDS = 600
+_SAMPLE_PEAK = re.compile(r"Peak:\s*(-?\d+(?:\.\d+)?|-inf)\s*dBFS")
 
 
 @dataclass(frozen=True)
@@ -19,6 +29,7 @@ class ComposedVoice:
     path: Path
     intro_seconds: float
     outro_seconds: float
+    outro_gain_db: float = 0.0
 
 
 def compose_voice(
@@ -33,11 +44,12 @@ def compose_voice(
     Segments are normalized to 48 kHz stereo before concatenation so clips recorded at
     different rates/layouts (e.g. a 44.1 kHz mono ElevenLabs CTA) join cleanly. Returns the
     composed FLAC plus the intro/outro durations used to offset chapters/subtitles and to
-    size the matching title-card scenes.
+    size the matching title-card scenes, and the gain given to a too-quiet outro.
     """
     segments: list[Path] = []
     intro_seconds = 0.0
     outro_seconds = 0.0
+    outro_gain = 0.0
     if intro is not None:
         intro_seconds = _duration(intro)
         segments.append(intro)
@@ -45,9 +57,23 @@ def compose_voice(
     if outro is not None:
         outro_seconds = _duration(outro)
         segments.append(outro)
+        narration_lufs, _ = _loudness(narration, NARRATION_SAMPLE_SECONDS)
+        outro_gain = outro_gain_db(narration_lufs, *_loudness(outro))
     output.parent.mkdir(parents=True, exist_ok=True)
-    _run(_build_concat_command(segments, output))
-    return ComposedVoice(path=output, intro_seconds=intro_seconds, outro_seconds=outro_seconds)
+    gains = [0.0] * (len(segments) - 1) + [outro_gain]
+    _run(_build_concat_command(segments, output, gains))
+    return ComposedVoice(path=output, intro_seconds=intro_seconds, outro_seconds=outro_seconds,
+                         outro_gain_db=outro_gain)
+
+
+def outro_gain_db(narration_lufs: float | None, outro_lufs: float | None, outro_peak_dbfs: float | None) -> float:
+    """dB to raise the outro CTA to the narration level; 0 when it is close enough or unmeasured."""
+    if narration_lufs is None or outro_lufs is None or outro_peak_dbfs is None:
+        return 0.0
+    gap = narration_lufs - outro_lufs
+    if gap <= OUTRO_RAISE_MIN_LU:
+        return 0.0
+    return round(max(0.0, min(gap, OUTRO_RAISE_MAX_DB, OUTRO_PEAK_CEILING_DBFS - outro_peak_dbfs)), 2)
 
 
 def shift_srt(text: str, offset_seconds: float) -> str:
@@ -95,12 +121,31 @@ def _duration(path: Path) -> float:
     return duration
 
 
-def _build_concat_command(segments: list[Path], output: Path) -> list[str]:
+def _loudness(path: Path, seconds: float | None = None) -> tuple[float | None, float | None]:
+    """(integrated LUFS, sample peak dBFS) of a clip, or of its first ``seconds``."""
+    window = ["-t", f"{seconds:g}"] if seconds else []
+    command = ["ffmpeg", "-nostats", "-hide_banner", *window, "-i", str(path), "-vn",
+               "-af", "ebur128=peak=sample", "-f", "null", "-"]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, errors="replace", check=False,
+                                timeout=SUBPROCESS_TIMEOUT_SECONDS)
+    except FileNotFoundError as exc:
+        raise DependencyError("ffmpeg was not found. Install FFmpeg 6.1+ and retry.") from exc
+    except subprocess.TimeoutExpired:
+        return None, None
+    peaks = _SAMPLE_PEAK.findall(result.stderr)
+    peak = float(peaks[-1]) if peaks and peaks[-1] != "-inf" else None
+    return parse_integrated_lufs(result.stderr), peak
+
+
+def _build_concat_command(segments: list[Path], output: Path, gains: list[float] | None = None) -> list[str]:
     inputs: list[str] = []
     for segment in segments:
         inputs.extend(["-i", str(segment)])
+    gains = gains or [0.0] * len(segments)
     parts = [
-        f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo[a{i}]"
+        f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo"
+        + (f",volume={gains[i]:.2f}dB" if gains[i] > 0 else "") + f"[a{i}]"
         for i in range(len(segments))
     ]
     chain = "".join(f"[a{i}]" for i in range(len(segments)))

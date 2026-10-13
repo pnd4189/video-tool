@@ -87,5 +87,8 @@ Loudness spread is −11..−47 dB mean across files, so set `gain_db` per cue f
   faster, grief → sorrow). Spans must cover 0 → end of the last SRT cue with no gap.
 - Chapter start seconds come from the SRT "Chương N:" cues (or `project.chapters`).
 - Unset → all tracks concat + loop. Music bed default −30 dB under the voice.
+- Outro CTA *(user, 2026-10-13)*: `compose_voice` raises it to the narration level (first 10 min) when it
+  is more than 1.5 LU under — never lowers it, never past −1 dBFS peak — and the render prints
+  `CTA outro raised +N dB`. Bình Thiên's sat ~5 LU low on published episodes (Tập 70: −18.3 vs −13.5 LUFS).
 - Music missing on Kaggle before 2026-07-21 was a wiring bug (fixed `d90b9f3`); still confirm
   `inputs.music` in the early job.yaml check.
