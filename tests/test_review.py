@@ -45,24 +45,38 @@ def _frames(spec: list[tuple[float, float, float]]) -> list[tuple[float, float, 
 def test_section_report_flags_a_quiet_cta_and_a_loud_sfx() -> None:
     frames = _frames([(0, 9, -15.0), (9, 99, -15.0), (99, 101, -3.0), (101, 120, -15.0), (120, 135, -21.0)])
     summary = {"integrated_lufs": -14.1, "lra_lu": 4.0, "true_peak_dbtp": -0.9}
-    sfx = [{"t": 99.0, "file": "boom.mp3", "length": 2.0, "added_lu": 9.0}]
+    sfx = [{"t": 99.0, "file": "boom.mp3", "length": 2.0, "own_lufs": -6.0}]
     report, warnings = section_report(frames, summary, intro=9.0, narration=111.0, duration=135.0,
                                       outro=15.0, sfx=sfx)
     assert report["narration_lufs"] == -15.0 and report["cta_out_lufs"] == -21.0
     assert report["sfx"][0]["over_narration_lu"] == 12.0
+    assert report["sfx"][0]["vs_voice_lu"] == 9.0
     assert any("cta out" in w for w in warnings)
     assert any("boom.mp3" in w and "over the voice" in w for w in warnings)
+    assert not any("barely audible" in w for w in warnings)
     assert not any("integrated" in w or "true peak" in w for w in warnings)
 
 
-def test_section_report_flags_a_faint_sfx_and_loudness_off_target() -> None:
+def test_section_report_flags_a_buried_sfx_and_loudness_off_target() -> None:
     frames = _frames([(0, 60, -16.0)])
     summary = {"integrated_lufs": -17.0, "lra_lu": 3.0, "true_peak_dbtp": 0.2}
-    sfx = [{"t": 30.0, "file": "wind.mp3", "length": 3.0, "added_lu": 0.2}]
-    _, warnings = section_report(frames, summary, intro=0.0, narration=60.0, duration=60.0, outro=0.0, sfx=sfx)
+    sfx = [{"t": 30.0, "file": "grass.mp3", "length": 3.0, "own_lufs": -45.0},
+           {"t": 45.0, "file": "wind.mp3", "length": 3.0, "own_lufs": -39.0}]
+    report, warnings = section_report(frames, summary, intro=0.0, narration=60.0, duration=60.0, outro=0.0, sfx=sfx)
+    assert [c["vs_voice_lu"] for c in report["sfx"]] == [-29.0, -23.0]
     assert any("integrated loudness -17.0" in w for w in warnings)
     assert any("true peak 0.2" in w for w in warnings)
-    assert any("wind.mp3" in w and "barely audible" in w for w in warnings)
+    assert any("grass.mp3" in w and "29.0 LU under the voice" in w for w in warnings)
+    assert not any("wind.mp3" in w for w in warnings)  # a quiet bed under the voice, as the wind files sit
+
+
+@needs_ffmpeg
+def test_cue_level_reads_a_short_hit_at_its_gain(tmp_path: Path) -> None:
+    hit = tmp_path / "hit.wav"  # 0.25 s: shorter than the 400 ms momentary window
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=f=1000:d=0.25", str(hit)], check=True)
+    level = review.cue_level_lufs(hit, 0.0)
+    assert level is not None and level > -40
+    assert review.cue_level_lufs(hit, -10.0) == pytest.approx(level - 10.0, abs=0.2)
 
 
 @needs_ffmpeg

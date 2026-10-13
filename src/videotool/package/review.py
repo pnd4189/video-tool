@@ -3,8 +3,8 @@
 Runs on a finished episode (after sfx / package / metadata), on this machine, and never touches the
 render. The sheet tiles the CTA cards, the intro and ending images, every chapter start and a few
 mid-cue subtitle frames. One ebur128 pass over the final audio gives the integrated loudness and true
-peak, the narration level, both CTA clips, and each SFX cue against the narration around it — and
-against the pre-SFX master `videotool sfx` keeps, which measures exactly what the cue added. The
+peak, the narration level, both CTA clips, and each SFX cue against the narration around it; the
+cue's own level (its file at its gain, measured alone) says whether the voice buries it. The
 package QA only checks the integrated LUFS, so "an SFX louder than the voice" or "a CTA far quieter
 than the narration" went unseen. Findings are warnings for whoever reviews; nothing is blocked.
 """
@@ -29,7 +29,10 @@ TILE_W, TILE_H, COLS, MAX_SHOTS = 480, 270, 4, 24
 TRUE_PEAK_MAX_DBTP = -0.5
 CTA_GAP_LU = 4.0  # a CTA clip this far from the narration level reads as a volume jump
 SFX_WINDOW_MAX_S = 4.0
-SFX_FAINT_LU = 0.5  # the cue lifts its window less than this over the pre-SFX master: barely audible
+# The cue's own momentary peak this far under the voice before it: buried. BT Chap 71/72 put their
+# 39 cues at -8.6..-22.9 LU, the voice-band wind files lowest by design (2026-10-13). How much a cue
+# lifts the final mix is no measure: the voice dominates a 400 ms window, so audible hits read 0.1-0.9 LU.
+SFX_FAINT_LU = -25.0
 SFX_LOUD_LU = 10.0  # the cue's momentary peak sits this far above the narration around it
 _FRAME = re.compile(r"t:\s*([\d.]+)\s+TARGET:\S+\s+LUFS\s+M:\s*(\S+)\s+S:\s*(\S+)")
 _LRA = re.compile(r"LRA:\s*(-?[\d.]+)\s*LU")
@@ -95,18 +98,25 @@ def contact_sheet(video: Path, shots: list[Shot], out_png: Path) -> Path:
     return out_png
 
 
-def loudness_timeline(path: Path, start: float | None = None, duration: float | None = None,
-                      ) -> tuple[list[tuple[float, float, float]], dict]:
+def loudness_timeline(path: Path) -> tuple[list[tuple[float, float, float]], dict]:
     """(t, momentary, short-term) every 100 ms from one ebur128 pass, plus the summary block."""
-    window = (["-ss", f"{start:.3f}"] if start is not None else []) + (
-        ["-t", f"{duration:.3f}"] if duration is not None else [])
-    stderr = _ffmpeg(["-nostats", *window, "-i", str(path), "-vn", "-af",
+    stderr = _ffmpeg(["-nostats", "-i", str(path), "-vn", "-af",
                       "ebur128=framelog=info:peak=true", "-f", "null", "-"], timeout=3600)
     frames = [(float(t), _num(m), _num(s)) for t, m, s in _FRAME.findall(stderr)]
     lra, peak = _LRA.findall(stderr), _PEAK.findall(stderr)
     return frames, {"integrated_lufs": parse_integrated_lufs(stderr),
                     "lra_lu": float(lra[-1]) if lra else None,
                     "true_peak_dbtp": _num(peak[-1]) if peak else None}
+
+
+def cue_level_lufs(path: Path, gain_db: float) -> float | None:
+    """A cue's momentary peak as `videotool sfx` mixes it (gain, stereo). Padded so a hit shorter than
+    the 400 ms window still fills one instead of reading as silence."""
+    stderr = _ffmpeg(["-nostats", "-i", str(path), "-af", f"volume={gain_db:g}dB,aformat=channel_layouts=stereo,"
+                      "apad=pad_dur=0.5,ebur128=framelog=info", "-f", "null", "-"])
+    values = [_num(m) for _t, m, _s in _FRAME.findall(stderr)]
+    finite = [v for v in values if math.isfinite(v)]
+    return max(finite) if finite else None
 
 
 def _level(frames: list[tuple[float, float, float]], lo: float, hi: float, col: int,
@@ -139,12 +149,15 @@ def section_report(frames: list[tuple[float, float, float]], summary: dict, *, i
     for cue in sfx:
         peak = _peak(frames, cue["t"], cue["t"] + cue["length"])
         around = _level(frames, cue["t"] - 12, cue["t"] - 1, 1, windows)
+        own = cue.get("own_lufs")
         cue["peak_lufs"] = peak
         cue["over_narration_lu"] = round(peak - around, 1) if peak is not None and around is not None else None
+        cue["vs_voice_lu"] = round(own - around, 1) if own is not None and around is not None else None
         if cue["over_narration_lu"] is not None and cue["over_narration_lu"] > SFX_LOUD_LU:
             warnings.append(f"SFX {cue['file']} at {_hms(cue['t'])} peaks {cue['over_narration_lu']} LU over the voice")
-        if cue.get("added_lu") is not None and cue["added_lu"] < SFX_FAINT_LU:
-            warnings.append(f"SFX {cue['file']} at {_hms(cue['t'])} adds only {cue['added_lu']} LU — barely audible")
+        if cue["vs_voice_lu"] is not None and cue["vs_voice_lu"] < SFX_FAINT_LU:
+            warnings.append(f"SFX {cue['file']} at {_hms(cue['t'])} sits {-cue['vs_voice_lu']} LU under the voice"
+                            " — barely audible")
     report["sfx"] = sfx
     return report, warnings
 
@@ -172,18 +185,12 @@ def run_review(job_path: Path, video: Path | None = None) -> Review:
     sheet = contact_sheet(video, pick_shots(duration, intro, outro, narration, chapters, cues),
                           review_dir / "contact-sheet.png")
     frames, summary = loudness_timeline(video)
-    master = root / ".videotool" / "sfx-master" / f"{job.outputs[0].preset}.mp4"
     sfx = []
     spec = job.enhance.sfx
     for cue in (spec.cues if spec is not None and spec.enabled else []):
         t, length = intro + cue.time, min(probe_media(root / cue.file).duration, SFX_WINDOW_MAX_S)
-        entry = {"t": round(t, 2), "file": Path(cue.file).name, "gain_db": cue.gain_db, "length": round(length, 2)}
-        if master.exists():
-            base, _ = loudness_timeline(master, start=max(t - 1.0, 0.0), duration=length + 2.0)
-            peak_base = _peak(base, min(1.0, t), min(1.0, t) + length)
-            peak_final = _peak(frames, t, t + length)
-            entry["added_lu"] = round(peak_final - peak_base, 1) if None not in (peak_base, peak_final) else None
-        sfx.append(entry)
+        sfx.append({"t": round(t, 2), "file": Path(cue.file).name, "gain_db": cue.gain_db, "length": round(length, 2),
+                    "own_lufs": cue_level_lufs(root / cue.file, cue.gain_db)})
     report, warnings = section_report(frames, summary, intro=intro, narration=narration, duration=duration,
                                       outro=outro, sfx=sfx)
     report_path = review_dir / "review.json"
@@ -194,10 +201,10 @@ def run_review(job_path: Path, video: Path | None = None) -> Review:
              f"LRA {report['lra_lu']} LU; narration {report['narration_lufs']}, CTA in {report['cta_in_lufs']}, "
              f"CTA out {report['cta_out_lufs']} LUFS (short-term median)"]
     if sfx:
-        added = [c["added_lu"] for c in sfx if c.get("added_lu") is not None]
+        own = [c["vs_voice_lu"] for c in sfx if c.get("vs_voice_lu") is not None]
         over = [c["over_narration_lu"] for c in sfx if c.get("over_narration_lu") is not None]
-        lines.append(f"sfx {len(sfx)} cues; over the voice {min(over, default=0)}..{max(over, default=0)} LU"
-                     + (f"; added over the pre-SFX master {min(added)}..{max(added)} LU" if added else ""))
+        lines.append(f"sfx {len(sfx)} cues; mix peak over the voice {min(over, default=0)}..{max(over, default=0)} LU"
+                     + (f"; cue alone vs the voice {min(own)}..{max(own)} LU" if own else ""))
     return Review(video, sheet, report_path, lines, warnings)
 
 
