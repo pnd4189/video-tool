@@ -91,6 +91,14 @@ def test_baked_mux_is_a_stream_copy(tmp_path: Path) -> None:
     assert "loudnorm" in mux  # the audio graph is unchanged
 
 
+def test_baked_mux_cuts_at_the_clip_total(tmp_path: Path) -> None:
+    job_path = _job(tmp_path, [2.0, 1.01, 3.333, 0.6])
+    baked, regular = _plan(tmp_path, job_path, bake=True), _plan(tmp_path, job_path, bake=False)
+    assert _arg(baked.mux_command, "-t") == f"{208 / 30:.6f}"
+    assert "-shortest" not in baked.mux_command
+    assert "-shortest" in regular.mux_command
+
+
 def test_atmosphere_is_blended_before_the_baked_overlays(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(segmented_module, "probe_media", lambda path: SimpleNamespace(duration=18.0))
     (tmp_path / "fireflies.mp4").write_bytes(b"fake")

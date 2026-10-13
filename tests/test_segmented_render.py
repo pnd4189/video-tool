@@ -169,7 +169,7 @@ def test_full_tier_visualizer_preserves_padded_outro(tmp_path: Path) -> None:
     mux = " ".join(plan.mux_command)
     assert "showwaves=" in mux
     assert "eof_action=pass" in mux
-    assert "apad=pad_dur=2" in mux
+    assert "apad=pad_dur=4.000" in mux  # 2 s past the narration + the 2 s amix tail guard
 
 
 def test_full_tier_segmented_without_music_keeps_particle_index(tmp_path: Path) -> None:

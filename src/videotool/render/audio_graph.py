@@ -3,6 +3,11 @@ from __future__ import annotations
 from videotool.core.timeline import Timeline
 
 SIDECHAIN_PARAMS = "threshold=0.05:ratio=8:attack=5:release=400:makeup=2"
+# amix ends on the voice's EOF and drops the voice it still holds unmixed: 0.03-0.33 s of the outro
+# CTA on the BT Chap 68-72 renders, 1.15 s re-running Chap 71's graph locally (2026-10-13), and
+# `-shortest` then cut the video to match. Silence past the voice takes that loss instead; every
+# render bounds its output by the video (`-shortest` / `-t`), so the guard never reaches the file.
+MIX_TAIL_GUARD_SECONDS = 2.0
 
 
 def audio_settings(timeline: Timeline) -> dict[str, object]:
@@ -46,12 +51,13 @@ def build_audio_graph(
     With music: returns a filter_complex chain consuming the voice/music inputs and
     ending in [aout]. Without music (``music_input is None``): returns the value for ``-af``.
     dB gains are emitted as ``volume={x}dB``; ducking and the final loudnorm pass are
-    each independently toggleable. ``voice_pad_seconds`` appends trailing silence to the voice.
+    each independently toggleable. ``voice_pad_seconds`` appends trailing silence to the voice;
+    a music mix appends ``MIX_TAIL_GUARD_SECONDS`` more.
     """
     norm = _loudnorm_suffix(normalize_lufs)
-    pad = _voice_pad_suffix(voice_pad_seconds)
     if music_input is None:
-        return f"volume={voice_gain_db}dB{pad}{norm}"
+        return f"volume={voice_gain_db}dB{_voice_pad_suffix(voice_pad_seconds)}{norm}"
+    pad = _voice_pad_suffix(voice_pad_seconds + MIX_TAIL_GUARD_SECONDS)
     # Pin an explicit stereo layout on both feeds. FLAC intermediates (voice-cta / music
     # schedule) carry a channel count but no layout tag; older ffmpeg (4.4.x on the cloud box)
     # then refuses to negotiate formats for sidechaincompress/amix ("No channel layout for

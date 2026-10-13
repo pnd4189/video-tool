@@ -1,3 +1,5 @@
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -7,8 +9,11 @@ from videotool.core.job_spec import load_job
 from videotool.core.timeline import compile_timeline
 from videotool.package.manifest import write_package_manifest
 from videotool.package.youtube import write_description
+from videotool.render.audio_graph import build_audio_graph
 from videotool.render.commands import build_ffmpeg_command
 from videotool.render.profiles import get_profile
+
+MIX = {"voice_gain_db": 0.0, "music_gain_db": -30.0, "duck": True, "normalize_lufs": -14.0}
 
 
 def test_audio_graph_uses_sidechain_and_lufs_target() -> None:
@@ -18,6 +23,28 @@ def test_audio_graph_uses_sidechain_and_lufs_target() -> None:
     joined = " ".join(plan.command)
     assert "sidechaincompress" in joined
     assert "loudnorm=I=-14:TP=-1:LRA=11" in joined
+
+
+def test_music_mix_pads_the_voice_past_the_amix_tail_drop() -> None:
+    assert "[1:a]volume=0.0dB,apad=pad_dur=2.000,aformat=" in build_audio_graph("1:a", "2:a", **MIX)
+    assert "apad=pad_dur=5.000," in build_audio_graph("1:a", "2:a", **MIX, voice_pad_seconds=3.0)
+    assert "apad" not in build_audio_graph("1:a", None, **MIX)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_music_mix_keeps_the_whole_voice(tmp_path: Path) -> None:
+    # Stereo FLAC voice and music, as compose_voice and the music schedule write them: without the
+    # guard this graph ended 1.1 s before the 30 s voice did.
+    voice, music, mixed = tmp_path / "voice.flac", tmp_path / "music.flac", tmp_path / "mixed.flac"
+    for path, tone, fmt in ((voice, "sine=f=220:d=30", "s32"), (music, "sine=f=330:d=30", "s16")):
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"{tone}:sample_rate=48000",
+                        "-ac", "2", "-sample_fmt", fmt, str(path)], check=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(voice), "-stream_loop", "-1", "-i", str(music),
+                    "-filter_complex", build_audio_graph("0:a", "1:a", **MIX), "-map", "[aout]", str(mixed)],
+                   check=True)
+    seconds = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                    "-of", "csv=p=0", str(mixed)], capture_output=True, text=True).stdout)
+    assert seconds >= 30.0
 
 
 def test_video_metadata_is_embedded() -> None:

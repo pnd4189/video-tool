@@ -140,6 +140,7 @@ def _build_baked_render(
     """Clips carry the overlays and exact frame counts, so the mux is a stream copy and the clip block
     already totals the timeline: there is no shortfall to reconcile."""
     slices = frame_exact_scenes(timeline.scenes, output.preset.fps)
+    video_seconds = sum(baked.frames for baked in slices) / output.preset.fps
     scene_commands = [
         _build_scene_clip(
             index, baked.scene, profile, output, clips_dir, atmosphere,
@@ -153,11 +154,11 @@ def _build_baked_render(
         concat_list_text="".join(f"file '{plan.output_path}'\n" for plan in scene_commands),
         mux_command=_build_mux_command(
             timeline, profile, output, concat_list_path,
-            bakes_atmosphere=atmosphere is not None, bakes_overlays=True,
+            bakes_atmosphere=atmosphere is not None, bakes_overlays=True, video_seconds=video_seconds,
         ),
         output_path=output.output_path,
         preset=output.preset.name,
-        scenes_total_duration=sum(baked.frames for baked in slices) / output.preset.fps,
+        scenes_total_duration=video_seconds,
         reconcile=None,
     )
 
@@ -231,6 +232,7 @@ def _build_mux_command(
     *,
     bakes_atmosphere: bool = False,
     bakes_overlays: bool = False,
+    video_seconds: float | None = None,
 ) -> list[str]:
     # Concat input = 0, voice = 1, music = 2 (when present).
     command = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list_path)]
@@ -270,8 +272,10 @@ def _build_mux_command(
     command.extend([
         "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-ac", "2",
         "-movflags", "+faststart",
-        "-shortest",
     ])
+    # Baked clips total exactly `video_seconds`. `-shortest` on a stream-copied video stops on packet
+    # boundaries (Chap 72's video ended 3 frames before its audio), so the mux cuts at the known length.
+    command.extend(["-t", f"{video_seconds:.6f}"] if video_seconds is not None else ["-shortest"])
     command.append(str(output.output_path))
     return command
 
