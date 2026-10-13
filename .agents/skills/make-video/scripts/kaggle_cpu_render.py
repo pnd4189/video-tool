@@ -44,7 +44,13 @@ CODE_PATHS = ("src", "Colab", "pyproject.toml", "README.md")
 BUNDLE_NAME = "bundle.vtb"  # an uncompressed tar; a neutral suffix so Kaggle never unpacks it on upload
 STATE_NAME = ".kaggle-cpu.json"
 KERNEL_TIMEOUT_S = 41_400  # 11.5 h, under Kaggle's 12 h session cap
-MAX_NARRATION_H = 3.5  # user decision 2026-10-12: this lane cannot resume, longer episodes go to GPU/TPU/Modal
+# The box stops this long before the timeout and ships its finished clips; this machine finishes the
+# render. Room for the tar (~4 GB, minutes) and for Kaggle to save the output after the script exits.
+STOP_MARGIN_S = 45 * 60
+# User decision 2026-10-12. With overlays baked per clip + x264 `faster` the box needs ~1.9 h per
+# video-hour (Chap 71 trial + bench, 2026-10-13), so 3.5 h of narration projects to ~6.8 h.
+MAX_NARRATION_H = 3.5
+CLIPS_TAR = "clips.tar"
 POLL_S = 60
 DATASET_POLL_S = 15
 DATASET_READY_TIMEOUT_S = 45 * 60
@@ -153,6 +159,22 @@ def cli_error(output: str) -> bool:
     return "error" in output.lower()
 
 
+def parse_dataset_files(listing: str) -> dict[str, int]:
+    """`kaggle datasets files` table -> {name: size}; an error message parses to {}."""
+    files = {}
+    for line in listing.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            files[parts[0]] = int(parts[1])
+    return files
+
+
+def dataset_has_files(listing: str, expected: dict[str, int | None]) -> bool:
+    """Every expected file is listed, with the expected size where one is given."""
+    files = parse_dataset_files(listing)
+    return all(name in files and (size is None or files[name] == size) for name, size in expected.items())
+
+
 def bundle_excluded(rel: str) -> bool:
     return (rel == STATE_NAME or rel.startswith(".videotool/tmp/")
             or (rel.startswith("outputs/") and rel.endswith(".mp4")))
@@ -176,11 +198,46 @@ def run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> str:
     return out
 
 
-def kaggle(*args: str, check: bool = True) -> str:
+def kaggle_exe() -> str:
     exe = shutil.which("kaggle") or str(Path.home() / ".local/bin/kaggle")
     if not Path(exe).exists():
         raise LaneError("`kaggle` CLI not found — install it and run `kaggle auth login`")
-    return run([exe, *args], check=check)
+    return exe
+
+
+def kaggle(*args: str, check: bool = True) -> str:
+    return run([kaggle_exe(), *args], check=check)
+
+
+def box_log_so_far(kernel_id: str, seconds: float = 20) -> str:
+    """The kernel's log up to now. Plain `kaggle kernels logs` stays empty until the run ends (Chap 71,
+    2026-10-12); `-f` replays the log from the start and then follows, so stop it after a moment."""
+    proc = subprocess.Popen([kaggle_exe(), "kernels", "logs", "-f", kernel_id], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, errors="replace")
+    try:
+        out, _ = proc.communicate(timeout=seconds)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out, _ = proc.communicate()
+    return log_text(out or "")
+
+
+def log_text(raw: str) -> str:
+    """A finished kernel's log comes back as a JSON array of `{"stream_name", "time", "data"}` lines
+    (Chap 71's failure tail was unreadable for it); a running one streams plain text. Plain text either way."""
+    out = []
+    for line in raw.splitlines():
+        if line.strip() in ("[", "]"):
+            continue
+        item = line.strip().lstrip("[,").rstrip("]").strip()
+        if item.startswith("{") and '"data"' in item:
+            try:
+                out.append(str(json.loads(item).get("data", "")))
+                continue
+            except ValueError:
+                pass
+        out.append(line + "\n")
+    return "".join(out)
 
 
 def kaggle_owner() -> str:
@@ -285,7 +342,7 @@ def submit(stage: Path, slug: str, max_hours: float, dry_run: bool, force: bool)
         "commit": run(["git", "rev-parse", "HEAD"], cwd=REPO), "bundle_sha256": digest,
         "bundle_bytes": bundle.stat().st_size, "narration_seconds": narration,
         "expected_seconds": round(intro + narration + outro, 3), "scenes": len(storyboard),
-        "timeout_s": KERNEL_TIMEOUT_S,
+        "timeout_s": KERNEL_TIMEOUT_S, "stop_after_s": KERNEL_TIMEOUT_S - STOP_MARGIN_S,
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (out_dir / "dataset-metadata.json").write_text(json.dumps(dataset_metadata(dataset_id), indent=2))
@@ -299,20 +356,25 @@ def submit(stage: Path, slug: str, max_hours: float, dry_run: bool, force: bool)
         say("dry run: nothing uploaded")
         return
 
-    exists = "ready" in kaggle("datasets", "status", dataset_id, check=False).lower()
-    say(f"uploading private dataset {dataset_id} ({manifest['bundle_bytes'] / 2**20:.0f} MiB) …")
-    out = (kaggle("datasets", "version", "-p", str(out_dir), "-r", "skip", "-q", "-m", digest) if exists
-           else kaggle("datasets", "create", "-p", str(out_dir), "-r", "skip", "-q"))
-    if cli_error(out):
-        raise LaneError(f"dataset upload refused by Kaggle:\n{out}")
-    deadline = time.time() + DATASET_READY_TIMEOUT_S
-    while True:
-        status = kaggle("datasets", "status", dataset_id, check=False).lower()
-        if "ready" in status:
-            break
-        if "error" in status or "fail" in status or time.time() > deadline:
-            raise LaneError(f"dataset {dataset_id} not ready: {status}")
-        time.sleep(DATASET_POLL_S)
+    # `kaggle datasets status` answers 403 for this account's access token (Chap 71, 2026-10-12) while
+    # `datasets files` works, so presence is read from the file listing; the box re-checks the sha256.
+    expected = {BUNDLE_NAME: manifest["bundle_bytes"], "manifest.json": None}
+    listing = kaggle("datasets", "files", dataset_id, check=False)
+    if dataset_has_files(listing, expected):
+        say(f"dataset {dataset_id} already holds this bundle, skipping the upload")
+    else:
+        say(f"uploading private dataset {dataset_id} ({manifest['bundle_bytes'] / 2**20:.0f} MiB) …")
+        out = (kaggle("datasets", "version", "-p", str(out_dir), "-r", "skip", "-q", "-m", digest)
+               if parse_dataset_files(listing) else kaggle("datasets", "create", "-p", str(out_dir), "-r", "skip", "-q"))
+        if cli_error(out):
+            raise LaneError(f"dataset upload refused by Kaggle:\n{out}")
+        deadline = time.time() + DATASET_READY_TIMEOUT_S
+        while not dataset_has_files(listing := kaggle("datasets", "files", dataset_id, check=False), expected):
+            if time.time() > deadline:
+                raise LaneError(f"dataset {dataset_id} does not list {BUNDLE_NAME} after "
+                                f"{DATASET_READY_TIMEOUT_S // 60} min:\n{listing[-500:]}")
+            time.sleep(DATASET_POLL_S)
+        say(f"dataset {dataset_id} lists {BUNDLE_NAME} and manifest.json")
 
     with tempfile.TemporaryDirectory(prefix="kcpu-kernel-") as tmp:
         shutil.copy(BOX_SCRIPT, Path(tmp) / BOX_SCRIPT.name)
@@ -360,7 +422,7 @@ def watch(stage: Path) -> None:
         if is_terminal(status):
             break
         if time.time() >= next_log:
-            beat = latest_box_line(kaggle("kernels", "logs", kernel_id, check=False))
+            beat = latest_box_line(box_log_so_far(kernel_id))
             if beat:
                 say(f"box {beat}")
             next_log = time.time() + LOG_EVERY_S
@@ -370,7 +432,7 @@ def watch(stage: Path) -> None:
     state.update(status=status, finished_at=time.time())
     save_state(stage, state)
     if status != "complete":
-        tail = "\n".join(kaggle("kernels", "logs", kernel_id, check=False).splitlines()[-40:])
+        tail = "\n".join(log_text(kaggle("kernels", "logs", kernel_id, check=False)).splitlines()[-40:])
         raise LaneError(f"{kernel_id} ended {status}. Last log lines:\n{tail}")
     say(f"render COMPLETE on Kaggle CPU after {(state['finished_at'] - state['submitted_at']) / 3600:.2f} h")
 
@@ -389,15 +451,47 @@ def fetch(stage: Path) -> None:
             result = json.loads(result_path.read_text(encoding="utf-8"))
             if result.get("bundle_sha256") != state["bundle_sha256"]:
                 raise LaneError("the kernel output belongs to another submission (bundle hash differs)")
-            mp4 = dl / result["mp4"]
-            if mp4.exists() and sha256_file(mp4) == result["sha256"]:
+            payload = dl / (result["clips_tar"] if result.get("status") == "partial" else result["mp4"])
+            if payload.exists() and sha256_file(payload) == result["sha256"]:
                 break
         if attempt == 3:
             raise LaneError(f"download incomplete or corrupt in {dl} after 3 attempts")
+    if result.get("status") == "partial":
+        say(f"the box stopped at its deadline and shipped {result['clips_done']}/{result['scenes']} clips; "
+            "finishing the render on this machine …")
+        result = complete_locally(stage, dl, result)
+        say(f"rendered {result['clips_rendered_locally']} clips + the mux here in "
+            f"{result['local_render_seconds'] / 60:.1f} min")
     state.update(fetched=True, dl_dir=str(dl), result=result)
     save_state(stage, state)
     say(f"fetched {result['mp4']} ({result['bytes'] / 1e9:.2f} GB, sha256 ok, "
         f"render {result['render_seconds'] / 3600:.2f} h on {result['cpu_count']} cpu)")
+
+
+def complete_locally(stage: Path, dl: Path, result: dict) -> dict:
+    """Finish a render the box stopped at its deadline. Its clips go into the stage workspace and the
+    render runs here with the box's job.yaml (same encoder, overlays baked): the executor skips every
+    clip already on disk, so only the missing clips and the stream-copy mux run. The mp4 then lands in
+    the download dir, so `finish` treats it like a box-rendered one."""
+    leftovers = sorted(p.name for p in (stage / "outputs").glob("*.mp4"))
+    if leftovers:
+        raise LaneError(f"outputs/ already holds {leftovers}; move it away before finishing the render here")
+    workspace = stage / ".videotool/tmp"
+    workspace.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(dl / result["clips_tar"]) as tar:
+        tar.extractall(workspace, filter="data")
+    shutil.copy(dl / "job.yaml", stage / "job.yaml")
+    started = time.time()
+    run([str(VT), "render", str(stage / "job.yaml"), "--preset", "youtube-16x9"], cwd=stage)
+    mp4s = sorted((stage / "outputs").glob("*.mp4"))
+    if len(mp4s) != 1:
+        raise LaneError(f"the local render left {[p.name for p in mp4s]} in outputs/, expected one mp4")
+    mp4 = dl / mp4s[0].name
+    shutil.move(str(mp4s[0]), str(mp4))
+    clips = len(list(workspace.glob("clips/*/scene-[0-9][0-9][0-9][0-9].mp4")))
+    return {**result, "status": "complete", "mp4": mp4.name, "bytes": mp4.stat().st_size,
+            "sha256": sha256_file(mp4), "clips_rendered_locally": clips - result["clips_done"],
+            "local_render_seconds": round(time.time() - started, 1)}
 
 
 def finish(stage: Path) -> None:

@@ -226,6 +226,25 @@ def test_dataset_errors_are_detected_even_with_exit_zero():
     assert not kcpu.cli_error("Your private Dataset is being created. Please check progress at https://x")
 
 
+LISTING = """name                size  creationDate
+-------------  ---------  --------------------------
+bundle.vtb     930478080  2026-10-12 07:12:05.006000
+manifest.json        459  2026-10-12 07:11:41.586000
+"""
+
+
+def test_dataset_listing_is_parsed_from_the_real_table():
+    assert kcpu.parse_dataset_files(LISTING) == {"bundle.vtb": 930478080, "manifest.json": 459}
+    assert kcpu.parse_dataset_files(
+        "403 Client Error: Forbidden for url: https://api.kaggle.com/v1/datasets.DatasetApiService/x") == {}
+
+
+def test_dataset_is_ready_only_with_the_bundle_at_its_exact_size():
+    assert kcpu.dataset_has_files(LISTING, {"bundle.vtb": 930478080, "manifest.json": None})
+    assert not kcpu.dataset_has_files(LISTING, {"bundle.vtb": 930478081, "manifest.json": None})
+    assert not kcpu.dataset_has_files("404 - Not Found", {"bundle.vtb": None})
+
+
 def test_latest_box_line_prefers_heartbeats():
     log = ("[   1.0s] box: python 3.12\n[ 300.0s] heartbeat: 10/244 clips, 5 min\n"
            "pip noise\n[ 600.0s] heartbeat: 30/244 clips, 10 min\n[ 601.0s] other\n")

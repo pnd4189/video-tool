@@ -98,8 +98,7 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
   needs sudo). *(2026-06-15.)* → fx-parallax.md
 - **Pre-rendered DepthFlow clips = `/parallax-video` + `parallax-link`**, a still without a clip stays Ken
   Burns *(2026-06-18)*; `Parallax/` optional on Kaggle too, depth needs `parallax_on_box` *(2026-10-03)*.
-- **Progress bar removed from every job** (`enhance.progress_bar` validates but renders nothing).
-  *(2026-06-15.)*
+- **Progress bar removed from every job** (`enhance.progress_bar` validates but renders nothing). *(2026-06-15.)*
 - **Group-A mood FX** (`enhance.mood` clean/melancholy/cozy/horror/action → vignette/grain/glow/
   flicker/grade) are independent of tier; per-effect fields override the mood. *(2026-06-15.)*
 - **Atmosphere overlay = one clip from the local CC0/generated library**
@@ -108,7 +107,8 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
 - **Full cloud render on Kaggle** (`Colab/cloud_render_runner.py`): the agent authors `creative.yaml`
   locally, the box runs no LLM (`autonomous=True` fallback only), NVENC or x264 with resumable Drive
   checkpoints, results publish to the source folder. Order: Kaggle 1st, Modal 2nd, Colab 3rd *(2026-07-11;
-  order 2026-10-07)* → kaggle-runbook.md. **CPU lane** *(2026-10-12)*: no Drive key → kaggle-cpu-runbook.md
+  order 2026-10-07)* → kaggle-runbook.md. **CPU lane** *(2026-10-12)*: no Drive key; overlays baked per clip +
+  x264 faster, the box ships its clips before the wall *(2026-10-13)* → kaggle-cpu-runbook.md
 - **Local and cloud job preparation merge into one package step** (`videotool.creative`, driven by
   `videotool prepare` / `Colab/cloud_director.py`; `videotool creative lint` + `sfx-pin` check the
   same rules before staging). Reverses the 2026-07-11 "local flow byte-unchanged, cloud is a

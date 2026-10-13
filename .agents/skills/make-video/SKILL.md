@@ -169,8 +169,9 @@ videotool sfx "$STAGE/job.yaml" && videotool package "$STAGE/job.yaml" && videot
 ## Step 4d — Kaggle CPU render (headless, user says "CPU" / "Kaggle CPU")
 
 No browser click, no GPU/TPU quota, no Drive key on Kaggle: prepared and finished locally like Modal,
-rendered on a private per-episode CPU kernel. Narration ≤ 3.5 h (no resume); ~6 h render for a 2h20
-episode until measured. agy may run it. Read `references/kaggle-cpu-runbook.md` first; dry run, then:
+rendered on a private per-episode CPU kernel. Narration ≤ 3.5 h; ~1.9 h of render per video-hour (x264
+`faster`, overlays baked into the clips); past 10.75 h the box ships its clips and this machine finishes.
+agy may run it. Read `references/kaggle-cpu-runbook.md` first; dry run, then:
 
 ```bash
 .venv/bin/python .agents/skills/make-video/scripts/kaggle_cpu_render.py run "$STAGE" --remote "gdrive:…/Chap NN"

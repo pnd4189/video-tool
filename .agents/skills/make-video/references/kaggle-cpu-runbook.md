@@ -11,19 +11,30 @@ headless pattern of TTS_Local (21 chapters on Kaggle CPU via `kaggle kernels pus
 `TTS_Local/.kaggle-bts-v2.log` — about 60 CPU-hours in 2.5 days, no quota hit); Kaggle CLI 2.2.4 help;
 modal-runbook.md gotchas.
 
-## Speed (estimate until the first real run)
+## Speed
 
-- A 4-core Kaggle box with x264 rendered an 8-min synthetic job at 0.39× realtime
-  (`Colab/videotool-render-tpu.ipynb` table, 2026-07-24): ~6 h for a 2h20 episode, ~9 h at the 3.5 h
-  cap. Kaggle ends a session at 12 h; the kernel is pushed with `-t 41400` (11.5 h).
-- Around it, on this machine: bundle upload ~0.7–1 GB (~0.8 MB/s measured on Modal ≈ 15–20 min),
-  ~3 GB mp4 download, sfx ~7 min, package ~4 min, Drive publish.
-- First real run (Chap 71): _to measure — fill in upload / render / download / finish times._
+- **Chap 71 trial** (2026-10-12, 3.27 h video; box = 4 vCPU on 2 cores + SMT, 31 GiB, ffmpeg 6.1.1,
+  Python 3.13): bundle 887 MiB uploaded in ~1 min; clips with x264 `medium` 416 min (2.12 h per
+  video-hour, 0.72 clip/min); then the mux re-encoded the whole video to draw subtitles + waveform at
+  ~0.53× realtime (~1.9 h per video-hour). Needed ~13.1 h, Kaggle cut it at 11.5 h, nothing was saved.
+  The old 0.39× estimate came from an 8-min synthetic job without overlay, subtitles or waveform — never
+  size this lane from a synthetic job again.
+- **Since 2026-10-13** the box renders x264 `faster` with the overlays baked into the scene clips
+  (`render.bake_overlays`, mux = stream copy). Bench on the real Chap 71 plan projects **~1.9 h per
+  video-hour** (Chap 71 ≈ 6.3 h, 3.5 h of narration ≈ 6.8 h) and a sharper picture (one encode, not two:
+  SSIM 0.956 vs 0.950). Local A/B on a 6-min cut: −52 % CPU time, subtitles switch on the same frame as
+  the old path, waveform aligned. Numbers: `plans/261012-0632-kaggle-cpu-render-lane/phase-06-baked-overlays.md`.
+  _Confirm on the next real run and record it here._
+- Around it, on this machine: mp4 download ~3–4 GB, sfx ~7 min, package ~4 min, Drive publish. Finishing a
+  render here (safety net) takes ~25 min per hour of video still missing (6-min A/B: 152 s).
 
 ## Rules
 
-- **Narration ≤ 3.5 h** (user 2026-10-12). `submit` refuses longer episodes: this lane cannot resume, so
-  they go to Kaggle GPU/TPU or Modal.
+- **Narration ≤ 3.5 h** (user 2026-10-12). `submit` refuses longer episodes; they go to Kaggle GPU/TPU or
+  Modal.
+- **Safety net** (user 2026-10-13): the box stops at timeout − 45 min (10.75 h), ships its finished clips
+  and exits cleanly; `fetch` then finishes the render on this machine (`the box stopped at its deadline…`)
+  and the run continues as usual. The machine must stay on.
 - **Same code as the other lanes.** `submit` refuses unless `src/ Colab/ pyproject.toml README.md` are
   committed and equal to `origin/main` (what the GPU/TPU boxes install) and the box script is committed.
 - **Only this script pushes, only `<owner>/videotool-cpu-*` kernels**; it refuses the frozen
@@ -57,10 +68,13 @@ modal-runbook.md gotchas.
    `render COMPLETE on Kaggle CPU after X h` → `fetched … sha256 ok` → `sfx mixed` → `package QA …` →
    `verified …` → `published N files, sizes match` → `deleting kernel …` / `deleting dataset …`.
    Box lines in the first minutes: `box: python … cpu`, `ffmpeg:`, `font:`, `disk free:`, `bundle ok:`,
-   `encoder pinned: libx264-balanced-capped-2500k`, `render start (4 scene workers, N scenes)`.
+   `encoder pinned: libx264-faster-capped-2500k, overlays baked into the scene clips`,
+   `render start (4 scene workers, N scenes, stops at 10.75 h …)` — N = storyboard + 2 CTA cards.
    **Stop and look** at any `FAILED:` line.
-5. **At ~60 min** compare the heartbeat clip rate with the estimate. If the render projects past 11 h,
-   `$KCPU cleanup "$STAGE" --force` and re-route the episode to GPU/TPU.
+5. **At ~60 min** compare the heartbeat clip rate with ~1.9 h per video-hour. Past 10.75 h the safety net
+   takes over by itself; only a box far slower than measured is worth `cleanup --force` + GPU/TPU.
+   A waiter must also end when the kernel ends (status terminal / the log follower exits): a grep for
+   "render finished" never fires when Kaggle kills the box.
 6. **Verify** as SKILL.md step 5 plus frames (modal-runbook.md step 6). `finish` already checked h264
    1920×1080 + aac, audio = intro CTA + narration + outro CTA (±0.3 s), video within 1 s of audio,
    < 4.5 GB, `captions.youtube.srt` starting at the intro CTA, package QA, "Mixed SFX onto 1 output(s)".
@@ -73,8 +87,17 @@ Every step re-runs on its own from `$STAGE/.kaggle-cpu.json`: `watch`, `fetch`, 
 - `submit` refuses while a run is open: finish it, or `--force`.
 - Box failure in the first minutes = the Kaggle image (an image change killed 10 TTS runs in 13 min on
   2026-10-03). The log prints python, ffmpeg, font and disk; report it, do not patch the box script.
-- `fetch` retries the download 3×, checks the mp4 sha256 and refuses output from another submission
-  (bundle hash differs).
+- `fetch` retries the download 3×, checks the mp4 (or `clips.tar`) sha256 and refuses output from another
+  submission (bundle hash differs). A partial result finishes here; re-running `fetch` resumes it.
+
+## Gotchas (Chap 71 trial, 2026-10-12)
+
+- `kaggle datasets status` answers 403 for this account's token; presence is read from `datasets files`.
+- `kaggle kernels logs` is empty while the kernel runs; `-f` replays and follows. A finished kernel's log
+  is a JSON array of `{stream_name, time, data}`; the driver turns it back into text.
+- The `-t` timeout is fixed at push: a running kernel cannot be given more time.
+- Clip encodes are not bit-reproducible run to run (same before and after baking): compare frames by
+  eye or SSIM, never by md5.
 
 ## Files
 
