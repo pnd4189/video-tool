@@ -7,6 +7,7 @@ from rich.table import Table
 from videotool.core.errors import DependencyError, LicensePolicyError, RenderError, VideoToolError
 from videotool.core.logging import console
 from videotool.package.metadata import run_metadata
+from videotool.package.review import run_review
 from videotool.core.services import (
     build_render_plans,
     run_analyze_audio,
@@ -267,6 +268,24 @@ def package(job_path: Path) -> int:
     for check in checks:
         console.print(f"{check.status.upper()} {check.name}: {check.message}")
     return 0 if all(check.status != "fail" for check in checks) else VALIDATION_FAILURE
+
+
+def review(job_path: Path, video: Path | None = None) -> int:
+    """Contact sheet + loudness by section of the finished episode. Findings warn, never block."""
+    try:
+        result = run_review(job_path, video)
+    except DependencyError as exc:
+        console.print(f"[red]MISSING DEPENDENCY[/red] {exc}")
+        return DEPENDENCY_ERROR
+    except (ValueError, VideoToolError) as exc:
+        console.print(f"[red]ERROR[/red] {exc}")
+        return CONFIG_ERROR
+    for line in result.lines:
+        console.print(line, soft_wrap=True)
+    for warning in result.warnings:
+        console.print(f"WARN {warning}", soft_wrap=True)
+    console.print(f"review: {len(result.warnings)} warning(s), details in {result.report}", soft_wrap=True)
+    return 0
 
 
 def benchmark(job_path: Path, profiles: str) -> None:

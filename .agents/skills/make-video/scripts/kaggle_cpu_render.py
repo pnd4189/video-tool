@@ -528,6 +528,10 @@ def finish(stage: Path) -> None:
         + "; ".join(f"{c['name']}: {c['message']}" for c in report if c["status"] != "pass"))
     run([str(VT), "metadata", job])
     verify(stage)
+    # Contact sheet + loudness by section (`.videotool/review/`): findings warn, never block publish.
+    for line in run([str(VT), "review", job], check=False).splitlines():
+        if line.strip():
+            say(line.strip())
     state.update(finished=True)
     save_state(stage, state)
 

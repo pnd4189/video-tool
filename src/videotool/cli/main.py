@@ -139,6 +139,14 @@ def package_cmd(job_path: Path) -> None:
     raise typer.Exit(commands.package(job_path))
 
 
+@app.command("review")
+def review_cmd(
+    job_path: Path,
+    video: Path | None = typer.Option(None, "--video", help="Final mp4 (default: the one in outputs/)"),
+) -> None:
+    raise typer.Exit(commands.review(job_path, video))
+
+
 @app.command()
 def benchmark(job_path: Path, profiles: str = "libx264-balanced,h264-vaapi-draft") -> None:
     commands.benchmark(job_path, profiles)

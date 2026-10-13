@@ -77,7 +77,8 @@ modal-runbook.md gotchas.
    "render finished" never fires when Kaggle kills the box.
 6. **Verify** as SKILL.md step 5 plus frames (modal-runbook.md step 6). `finish` already checked h264
    1920×1080 + aac, audio = intro CTA + narration + outro CTA (±0.3 s), video within 1 s of audio,
-   < 4.5 GB, `captions.youtube.srt` starting at the intro CTA, package QA, "Mixed SFX onto 1 output(s)".
+   < 4.5 GB, `captions.youtube.srt` starting at the intro CTA, package QA, "Mixed SFX onto 1 output(s)",
+   then `videotool review` (warnings only): open `$STAGE/.videotool/review/contact-sheet.png`.
 7. **Local cleanup**: ask the user before deleting `$STAGE`, `$STAGE-dl`, `$STAGE-kcpu` (global rule).
 
 ## Recovering

@@ -182,6 +182,8 @@ agy may run it. Read `references/kaggle-cpu-runbook.md` first; dry run, then:
 Check (pitfalls.md "Verify"): mp4 named after the title; duration = intro CTA + narration + outro
 CTA; h264 1920×1080 + aac; `quality-report.json` 11/11 (LUFS ≈ −13.5..−14); `Timing:` tier; SFX and
 music cue counts; intro/ending cards present; `captions.youtube.srt` first cue = CTA length.
+With the job folder on this machine, `videotool review <job.yaml>` (~1 min for 3 h): open
+`.videotool/review/contact-sheet.png` and report its loudness line and every `WARN`.
 Report to the user, outcome first: output path, mp4 name + size + duration, QA result, timing tier,
 overlay/SFX/music summary, anything skipped (no thumbnail, long image holds, source defects), and
 remind them to upload `captions.youtube.srt` and paste `description.txt`.
