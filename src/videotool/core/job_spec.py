@@ -286,6 +286,10 @@ class RenderSpec(BaseModel):
     # Above this scene count, render via the resumable segmented path (clip-per-scene
     # + concat) instead of one giant filtergraph. Tune per job for RAM/length trade-offs.
     max_inline_scenes: int = Field(default=40, gt=0)
+    # Segmented path only: draw subtitles / mood filters / waveform inside each scene clip so the
+    # final mux is a stream copy instead of a second full re-encode. Off keeps every command as is;
+    # the Kaggle CPU lane turns it on (a 3 h episode's re-encode alone took ~6 h on 4 cores).
+    bake_overlays: bool = False
 
 
 class PackageSpec(BaseModel):

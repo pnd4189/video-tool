@@ -203,6 +203,7 @@ def build_segmented_plans(
     outro_present = 1 if cta and cta.outro_seconds > 0 else 0
     narration_count = len(timeline.scenes) - intro_offset - outro_present
     reconcile_index = intro_offset + narration_count - 1 if narration_count >= 1 else None
+    bake_overlays = load_job(job_path).render.bake_overlays
     # Per-preset clips/concat list: different resolutions can't share concat inputs.
     return [
         build_segmented_render(
@@ -212,6 +213,7 @@ def build_segmented_plans(
             clips_dir=workspace_root / "clips" / output.preset.name,
             concat_list_path=workspace_root / f"concat-{output.preset.name}.txt",
             reconcile_scene_index=reconcile_index,
+            bake_overlays=bake_overlays,
         )
         for output in outputs
     ]

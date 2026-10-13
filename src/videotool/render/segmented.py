@@ -6,6 +6,13 @@ from pathlib import Path
 from videotool.core.media_probe import probe_media
 from videotool.core.timeline import Timeline, TimelineOutput, TimelineScene
 from videotool.render.audio_graph import audio_settings, build_audio_graph, build_audio_output_graph
+from videotool.render.baked_overlays import (
+    BakedScene,
+    baked_overlay_graph,
+    frame_exact_scenes,
+    voice_input_args,
+    wants_baked_overlays,
+)
 from videotool.render.commands import CommandPlan
 from videotool.render.overlay_graph import (
     build_scene_atmosphere,
@@ -73,6 +80,7 @@ def build_segmented_render(
     clips_dir: Path,
     concat_list_path: Path,
     reconcile_scene_index: int | None = None,
+    bake_overlays: bool = False,
 ) -> SegmentedPlan:
     """Plan a resumable render: one self-contained clip per scene, joined by the concat
     demuxer with audio muxed in a final pass.
@@ -84,8 +92,13 @@ def build_segmented_render(
     absorb the per-clip duration shortfall (frame rounding accumulates across many scenes).
     It should be the LAST NARRATION scene — the outro CTA card must keep its place so the
     outro voice stays aligned. Defaults to the last scene when unspecified (no-outro case).
+
+    ``bake_overlays`` draws the timeline overlays inside the clips instead (see baked_overlays) when
+    there is something to draw and every overlay can move into the clips.
     """
     atmosphere = _scene_atmosphere(timeline)
+    if bake_overlays and wants_baked_overlays(timeline) and (atmosphere or not timeline.enhance_atmosphere):
+        return _build_baked_render(timeline, profile, output, clips_dir, concat_list_path, atmosphere)
     scene_commands = []
     reconcile: ReconcileSpec | None = None
     elapsed = 0.0
@@ -116,6 +129,39 @@ def build_segmented_render(
     )
 
 
+def _build_baked_render(
+    timeline: Timeline,
+    profile: RenderProfile,
+    output: TimelineOutput,
+    clips_dir: Path,
+    concat_list_path: Path,
+    atmosphere: tuple[Path, float] | None,
+) -> SegmentedPlan:
+    """Clips carry the overlays and exact frame counts, so the mux is a stream copy and the clip block
+    already totals the timeline: there is no shortfall to reconcile."""
+    slices = frame_exact_scenes(timeline.scenes, output.preset.fps)
+    scene_commands = [
+        _build_scene_clip(
+            index, baked.scene, profile, output, clips_dir, atmosphere,
+            baked.start % atmosphere[1] if atmosphere else None, baked=baked, timeline=timeline,
+        )
+        for index, baked in enumerate(slices)
+    ]
+    return SegmentedPlan(
+        scene_commands=scene_commands,
+        concat_list_path=concat_list_path,
+        concat_list_text="".join(f"file '{plan.output_path}'\n" for plan in scene_commands),
+        mux_command=_build_mux_command(
+            timeline, profile, output, concat_list_path,
+            bakes_atmosphere=atmosphere is not None, bakes_overlays=True,
+        ),
+        output_path=output.output_path,
+        preset=output.preset.name,
+        scenes_total_duration=sum(baked.frames for baked in slices) / output.preset.fps,
+        reconcile=None,
+    )
+
+
 def _build_scene_clip(
     index: int,
     scene: TimelineScene,
@@ -124,6 +170,9 @@ def _build_scene_clip(
     clips_dir: Path,
     atmosphere: tuple[Path, float] | None = None,
     atmosphere_seek: float | None = None,
+    *,
+    baked: BakedScene | None = None,
+    timeline: Timeline | None = None,
 ) -> CommandPlan:
     clip_path = (clips_dir / f"scene-{index:04}.mp4").resolve()
     command = ["ffmpeg", "-y"]
@@ -133,7 +182,8 @@ def _build_scene_clip(
         command.extend(["-stream_loop", "-1", "-t", f"{scene.duration:.3f}", "-i", str(scene.media_path)])
     fade = min(MAX_CLIP_FADE_SECONDS, scene.duration / 4)
     fade_out_start = max(0.0, scene.duration - fade)
-    faded = "v" if atmosphere is None else "vfade"
+    clip_label = "v" if baked is None else "vclip"
+    faded = clip_label if atmosphere is None else "vfade"
     graph = (
         f"{scene_filter(0, scene, output, 'vbase')};"
         f"[vbase]fade=t=in:st=0:d={fade:.3f},"
@@ -143,9 +193,16 @@ def _build_scene_clip(
         # Seek the overlay to where this scene sits on the timeline, so the loop reads as one
         # continuous effect instead of restarting at every cut.
         command.extend(["-stream_loop", "-1", "-ss", f"{atmosphere_seek or 0.0:.3f}", "-i", str(atmosphere[0])])
-        graph += ";" + build_scene_atmosphere(faded, "v", output, 1)
+        graph += ";" + build_scene_atmosphere(faded, clip_label, output, 1)
+    if baked is not None and timeline is not None:
+        voice = voice_input_args(timeline, baked, output.preset.fps)
+        voice_idx = command.count("-i") if voice else None
+        command.extend(voice)
+        graph += ";" + baked_overlay_graph(clip_label, "v", timeline, output, baked, voice_idx)
     command.extend(["-filter_complex", graph, "-map", "[v]", "-an"])
     command.extend(codec_args(profile))
+    if baked is not None:
+        command.extend(["-frames:v", str(baked.frames)])
     command.append(str(clip_path))
     return CommandPlan(command=command, output_path=clip_path, preset=output.preset.name)
 
@@ -173,6 +230,7 @@ def _build_mux_command(
     concat_list_path: Path,
     *,
     bakes_atmosphere: bool = False,
+    bakes_overlays: bool = False,
 ) -> list[str]:
     # Concat input = 0, voice = 1, music = 2 (when present).
     command = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list_path)]
@@ -182,7 +240,7 @@ def _build_mux_command(
     # The atmosphere blend is already baked into the scene clips; only the cheap `particles`
     # overlay still needs its input here.
     particle_index = _append_particle_input(command, timeline, output, skip_atmosphere=bakes_atmosphere)
-    if _needs_mux_overlay(timeline, bakes_atmosphere):
+    if not bakes_overlays and _needs_mux_overlay(timeline, bakes_atmosphere):
         filters, voice_audio, voice_visual = _voice_labels_for_complex(timeline)
         filters.append(
             build_video_overlay(

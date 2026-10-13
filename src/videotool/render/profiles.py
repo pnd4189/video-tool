@@ -53,6 +53,21 @@ PROFILES = {
         "h264_nvenc-capped-2200k", "h264_nvenc", "p5", None,
         extra_args=("-rc", "vbr", "-cq", "23", "-maxrate", "2200k", "-bufsize", "4400k"),
     ),
+    # x264 `faster` with the same CRF and VBV ceilings, for the CPU-only Kaggle box: −22 % clip time
+    # against `medium`, and with overlays baked into the clips (one encode instead of two) the result
+    # measured sharper than the medium two-encode path (SSIM 0.956 vs 0.950, Chap 71 bench 2026-10-13).
+    "libx264-faster-capped": RenderProfile(
+        "libx264-faster-capped", "libx264", "faster", 20,
+        extra_args=("-maxrate", "2800k", "-bufsize", "5600k"),
+    ),
+    "libx264-faster-capped-2500k": RenderProfile(
+        "libx264-faster-capped-2500k", "libx264", "faster", 20,
+        extra_args=("-maxrate", "2500k", "-bufsize", "5000k"),
+    ),
+    "libx264-faster-capped-2200k": RenderProfile(
+        "libx264-faster-capped-2200k", "libx264", "faster", 20,
+        extra_args=("-maxrate", "2200k", "-bufsize", "4400k"),
+    ),
 }
 
 
