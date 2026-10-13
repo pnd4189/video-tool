@@ -24,9 +24,14 @@ modal-runbook.md gotchas.
   video-hour** (Chap 71 ≈ 6.3 h, 3.5 h of narration ≈ 6.8 h) and a sharper picture (one encode, not two:
   SSIM 0.956 vs 0.950). Local A/B on a 6-min cut: −52 % CPU time, subtitles switch on the same frame as
   the old path, waveform aligned. Numbers: `plans/261012-0632-kaggle-cpu-render-lane/phase-06-baked-overlays.md`.
-  _Confirm on the next real run and record it here._
-- Around it, on this machine: mp4 download ~3–4 GB, sfx ~7 min, package ~4 min, Drive publish. Finishing a
-  render here (safety net) takes ~25 min per hour of video still missing (6-min A/B: 152 s).
+- **Measured 2026-10-13** (two episodes at once, one kernel each): Chap 71, 3.27 h of video — clips 5.9 h
+  (1.81 h per video-hour) + mux 0.5 h = 6.45 h on the box, 6.57 h from submit, 4.14 GB; Chap 72, 2.89 h —
+  clips 5.4 h (1.87) + mux 0.5 h = 5.86 h, 5.91 h from submit, 3.66 GB. Budget ~2 h of box per video-hour
+  end to end: 3.5 h of narration ≈ 7.1 h, well inside the 10.75 h stop.
+- Size: `faster-capped-2500k` averaged 2.81 Mbit/s on Chap 71, 2 % over (cap + 256) × duration; 3.5 h of
+  narration at 2500k would land near 4.43 GB, 70 MB under the ceiling.
+- Around it, on this machine: download 4.1 GB in ~7 min, sfx ~8 min, package ~4 min, Drive publish ~5 min.
+  Finishing a render here (safety net) takes ~25 min per hour of video still missing (6-min A/B: 152 s).
 
 ## Rules
 
@@ -44,8 +49,8 @@ modal-runbook.md gotchas.
   `rclone.conf`, `kaggle.json`, `access_token`, `.env`; small files containing `refresh_token`,
   `client_secret`, `PRIVATE KEY`); any hit refuses the upload.
 - Never a published episode: `publish` writes into its `outputs/`.
-- One episode = one kernel + one dataset, so several episodes can run at once. Kaggle's limit on
-  concurrent CPU sessions is unverified (a forum report says 5).
+- One episode = one kernel + one dataset, so several episodes can run at once: two did on 2026-10-13.
+  Kaggle's limit on concurrent CPU sessions is unverified (a forum report says 5).
 
 ## Flow
 
@@ -99,6 +104,13 @@ Every step re-runs on its own from `$STAGE/.kaggle-cpu.json`: `watch`, `fetch`, 
 - The `-t` timeout is fixed at push: a running kernel cannot be given more time.
 - Clip encodes are not bit-reproducible run to run (same before and after baking): compare frames by
   eye or SSIM, never by md5.
+
+## Gotchas (Chap 71/72, 2026-10-13)
+
+- The music mix (`amix`) dropped 0.03-0.33 s off the outro CTA and `-shortest` cut the video to match;
+  Chap 71 missed the ±0.3 s audio check by 0.01 s. The cut was the outro's trailing silence, and the user
+  had it published by hand. Fixed in `affc153` (voice padded before the mix, baked mux cut with `-t`).
+  A `FAILED:` in `finish` stops the run before Drive: report it, never mark the state finished yourself.
 
 ## Files
 
