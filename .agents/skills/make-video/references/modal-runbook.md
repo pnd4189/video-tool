@@ -6,8 +6,9 @@ episode is prepared and finished on this machine, Modal only runs `videotool ren
 Drive credentials ever go to Modal. Modal runs are invisible to `videotool renders`, the watcher
 daemon and Telegram — say what is happening in the session.
 
-Sources: first full run = Chap 67 (2026-10-07); Chap 65 and Kẻ Trừ Tà Tập 1 runs (2026-10-07/08); probes
-of 2026-10-05 (kept under "Other probes" below); rates from
+Sources: first full run = Chap 67 (2026-10-07); Chap 65 and Kẻ Trừ Tà Tập 1 runs (2026-10-07/08); Kẻ Trừ
+Tà Tập 2/3 runs by agy (2026-10-11/13) and the Modal CLI 1.6.0 source (`cli/_download.py`, read
+2026-10-15) for the download step; probes of 2026-10-05 (kept under "Other probes" below); rates from
 `modal billing rates` (2026-10-07); Modal docs on budgets, billing, egress, volumes, timeouts, cron
 (read 2026-10-05).
 
@@ -17,6 +18,8 @@ of 2026-10-05 (kept under "Other probes" below); rates from
   after ~18 min, the final overlay + subtitle + waveform pass ~48 min), 2.67 GB mp4, metered $1.52
   (covered by the credit). Kaggle GPU needed 4h34 for Chap 58 (2h02); Kaggle TPU is 30-60 min when
   its queue is empty. End to end (build, render, local sfx/package, download, Drive upload): ~90 min.
+- Kẻ Trừ Tà Tập 3 (2026-10-13): 2h04 narration, 242 stills, fireflies overlay, 2500k cap → render
+  3655 s, 2.55 GB mp4, metered ≈ $1.46 (billed 0).
 - Smoke test of `scripts/modal_render.py` as written here (2026-10-07): 10-minute slice with 18
   `Parallax/` clips + overlay, render 374 s, 205 MB, all of it (image build included) $0.24. Cheap
   enough to re-run after any edit to the script.
@@ -70,11 +73,20 @@ first launch**, and give the worst case: rate × `timeout` × (retries + 1) × c
    → `render finished rc=0` → `copied outputs + logs + job.yaml + render.log to volume, committed` →
    `Stopping app - local entrypoint completed`. **Stop and look** if there is no heartbeat after 5 min,
    `rc` is not 0, or the encoder is not `h264_nvenc-…` (the script aborts on a missing NVENC).
-4. **Fetch, verify, clean the Volume**:
+4. **Fetch, verify, clean the Volume.** Stream the mp4: a download to a path corrupted Kẻ Trừ Tà
+   Tập 2's 2.3 GB mp4 twice (same size, different md5, 1037 and 1220 decode errors) while the stream
+   decoded clean. The CLI writes a path download in parallel blocks but streams `-` in order, then
+   prints its "Finished downloading" line, so cut the stream at the exact size. Create `$DL` first: a
+   folder downloaded to a path that does not exist collapses into ONE file (Tập 3's `logs/`, then
+   `package` failed `render_log`).
    ```bash
-   DL="$STAGE-dl"; modal volume get vt-$SLUG / "$DL" --force
+   DL="$STAGE-dl"; V=vt-$SLUG; mkdir -p "$DL/outputs"
+   modal volume get $V job.yaml "$DL/job.yaml" --force; modal volume get $V logs "$DL" --force   # $DL/logs/*.log
+   SIZE=$(modal volume ls $V outputs --json | python3 -c "import json,sys; print(next(r['size'] for r in json.load(sys.stdin) if r['filename'].endswith('youtube-16x9.mp4')))")
+   modal volume get $V outputs/youtube-16x9.mp4 - | head -c "$SIZE" > "$DL/outputs/youtube-16x9.mp4"
+   stat -c%s "$DL/outputs/youtube-16x9.mp4"                                # must equal $SIZE
    ffmpeg -nostdin -v error -i "$DL/outputs/youtube-16x9.mp4" -f null -   # silent = clean, ~5 min
-   modal volume delete vt-$SLUG --yes
+   modal volume delete $V --yes
    ```
 5. **Finish locally** (the order matters; sfx ~7 min, package ~4 min on 2h12):
    ```bash
