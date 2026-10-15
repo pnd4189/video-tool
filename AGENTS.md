@@ -32,8 +32,8 @@ Ambiguous intro/ending candidates → skip that image, render, report the skip.
 
 The rclone mount (`/home/dung/cloud/gdrive/...`) and Drive itself are source material. Never
 `rm`/`mv`/overwrite anything there. Stage with `rclone copy` into `$HOME/.cache/videotool/<name>`,
-publish back with `rclone copy`, delete only the local stage. The only Drive writes a render makes
-are the per-episode creative/template/config files and the cleanup of its own `render_job*.json`.
+publish back with `rclone copy`; `purge_stage.py` then deletes only the local stage *(2026-10-15)*.
+The only Drive writes a render makes are its creative/template/config files and `render_job*.json` cleanup.
 
 ## Agent roles and lessons
 

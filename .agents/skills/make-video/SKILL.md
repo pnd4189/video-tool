@@ -150,8 +150,10 @@ $VT validate "$JOB" && $VT render "$JOB" --preset youtube-16x9
 $VT sfx "$JOB" && $VT package "$JOB" && $VT metadata "$JOB"
 rclone copy "$STAGE/outputs" "$REMOTE/Output"
 ```
-Run the render in the background and watch the PID, not the file. After a verified publish, delete
-`$STAGE` only. Shorts only on request: add `{preset: shorts-9x16}` to `outputs:` and `render --all`.
+Run the render in the background and watch the PID, not the file. After the publish, free the machine
+(unasked, user 2026-10-15; it re-checks every published size first):
+`.venv/bin/python .agents/skills/make-video/scripts/purge_stage.py "$STAGE" --published-to "$REMOTE/Output"`.
+Shorts only on request: add `{preset: shorts-9x16}` to `outputs:` and `render --all`.
 
 ## Step 4c — Modal render (backup runtime, user says "Modal")
 
@@ -183,7 +185,8 @@ Check (pitfalls.md "Verify"): mp4 named after the title; duration = intro CTA + 
 CTA; h264 1920×1080 + aac; `quality-report.json` 11/11 (LUFS ≈ −13.5..−14); `Timing:` tier; SFX and
 music cue counts; intro/ending cards present; `captions.youtube.srt` first cue = CTA length.
 With the job folder on this machine, `videotool review <job.yaml>` (~1 min for 3 h): open
-`.videotool/review/contact-sheet.png` and report its loudness line and every `WARN`.
+`.videotool/review/contact-sheet.png` (after a purge: `$STAGE-review/`) and report its loudness line
+and every `WARN`.
 Report to the user, outcome first: output path, mp4 name + size + duration, QA result, timing tier,
 overlay/SFX/music summary, anything skipped (no thumbnail, long image holds, source defects), and
 remind them to upload `captions.youtube.srt` and paste `description.txt`.

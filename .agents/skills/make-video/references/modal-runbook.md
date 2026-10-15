@@ -93,9 +93,14 @@ first launch**, and give the worst case: rate × `timeout` × (retries + 1) × c
    rclone copy "$STAGE/outputs" "$REMOTE/outputs" --exclude "thumbnail-candidate-*.jpg"
    rclone lsl "$REMOTE/outputs"     # every size equals the local file
    ```
-8. **Clean up**: ask the user before `rm -rf "$STAGE" "$DL"` (global rule). Keep `creative.yaml`,
-   the template and `job.yaml` copy in `plans/scratch-<slug>/` as the record. Run the three Modal
-   checks, report spend, and remind the user to upload `captions.youtube.srt` and paste `description.txt`.
+8. **Clean up**, unasked (user 2026-10-15). Copy `job.yaml` into `plans/scratch-<slug>/` first: with
+   `creative.yaml` and the template it is the record. Then free the machine; the script re-checks every
+   published size, deletes `$STAGE` and `$DL` and keeps only `$STAGE-review/`:
+   ```bash
+   .venv/bin/python .agents/skills/make-video/scripts/purge_stage.py "$STAGE" --published-to "$REMOTE/outputs"
+   ```
+   Run the three Modal checks, report spend, and remind the user to upload `captions.youtube.srt` and
+   paste `description.txt`.
 
 ## Gotchas (each learned on a real run)
 

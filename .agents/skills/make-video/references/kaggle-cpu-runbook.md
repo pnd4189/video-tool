@@ -71,7 +71,8 @@ modal-runbook.md gotchas.
    Driver lines, in order: `packing` → `bundle … credential scan clean` → `uploading private dataset` →
    `pushed <kernel>` → `<kernel>: running` → every 10 min `box [ …s] heartbeat: N/M clips …` →
    `render COMPLETE on Kaggle CPU after X h` → `fetched … sha256 ok` → `sfx mixed` → `package QA …` →
-   `verified …` → `published N files, sizes match` → `deleting kernel …` / `deleting dataset …`.
+   `verified …` → `published N files, sizes match` → `deleting kernel …` / `deleting dataset …` →
+   `freed X GB: deleted <slug>, <slug>-dl, <slug>-kcpu; review kept in …/<slug>-review`.
    Box lines in the first minutes: `box: python … cpu`, `ffmpeg:`, `font:`, `disk free:`, `bundle ok:`,
    `encoder pinned: libx264-faster-capped-2500k, overlays baked into the scene clips`,
    `render start (4 scene workers, N scenes, stops at 10.75 h …)` — N = storyboard + 2 CTA cards.
@@ -83,13 +84,18 @@ modal-runbook.md gotchas.
 6. **Verify** as SKILL.md step 5 plus frames (modal-runbook.md step 6). `finish` already checked h264
    1920×1080 + aac, audio = intro CTA + narration + outro CTA (±0.3 s), video within 1 s of audio,
    < 4.5 GB, `captions.youtube.srt` starting at the intro CTA, package QA, "Mixed SFX onto 1 output(s)",
-   then `videotool review` (warnings only): open `$STAGE/.videotool/review/contact-sheet.png`.
-7. **Local cleanup**: ask the user before deleting `$STAGE`, `$STAGE-dl`, `$STAGE-kcpu` (global rule).
+   then `videotool review` (warnings only): its lines are in the log; open
+   `$STAGE-review/contact-sheet.png` (the purge moved it there).
+7. **Local cleanup is automatic** (user 2026-10-15): `run` ends with `purge`, which re-checks every
+   `outputs/` file on Drive at its size, then deletes `$STAGE`, `$STAGE-dl`, `$STAGE-kcpu` and keeps only
+   `$STAGE-review/` (~7 MB) and the log. The pre-SFX master goes too: an SFX fix after publish means a
+   re-render. Any failed step stops before the purge, so a broken run keeps everything for recovery.
 
 ## Recovering
 
 Every step re-runs on its own from `$STAGE/.kaggle-cpu.json`: `watch`, `fetch`, `finish`,
-`publish --remote …`, `cleanup [--force]`, `status`.
+`publish --remote …`, `cleanup [--force]`, `purge`, `status`. Once purged there is no state left to
+re-run from.
 - `submit` refuses while a run is open: finish it, or `--force`.
 - Box failure in the first minutes = the Kaggle image (an image change killed 10 TTS runs in 13 min on
   2026-10-03). The log prints python, ffmpeg, font and disk; report it, do not patch the box script.
@@ -115,5 +121,6 @@ Every step re-runs on its own from `$STAGE/.kaggle-cpu.json`: `watch`, `fetch`, 
 ## Files
 
 - `scripts/kaggle_cpu_render.py` (local driver) and `scripts/kaggle_cpu_box.py` (runs on Kaggle). Edit
-  only when the user asks.
-- `$STAGE/.kaggle-cpu.json` state · `$STAGE-kcpu/` bundle · `$STAGE-dl/` kernel output.
+  only when the user asks. `scripts/purge_stage.py` deletes the stage after publish (all local lanes).
+- `$STAGE/.kaggle-cpu.json` state · `$STAGE-kcpu/` bundle · `$STAGE-dl/` kernel output ·
+  `$STAGE-review/` contact sheet + loudness, kept after the purge.

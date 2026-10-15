@@ -390,3 +390,34 @@ def test_publish_refuses_the_shared_render_folder(tmp_path, capsys):
     (stage / kcpu.STATE_NAME).write_text(json.dumps({"finished": True}))
     assert kcpu.main(["publish", str(stage), "--remote", "gdrive:_VIDEOTOOL_SHARED/x"]) == 1
     assert "--remote must be the episode folder" in capsys.readouterr().out
+
+
+# --- local purge after a verified publish ---------------------------------------------------------
+
+def test_purge_waits_for_the_kaggle_cleanup(tmp_path, capsys):
+    stage = tmp_path / "binh-thien-chap73"
+    stage.mkdir()
+    (stage / kcpu.STATE_NAME).write_text(json.dumps({"published": True, "remote": "gdrive:a/Chap 73"}))
+    assert kcpu.main(["purge", str(stage)]) == 1
+    assert "run `cleanup` first" in capsys.readouterr().out
+    assert stage.exists()
+
+
+def test_purge_hands_the_published_outputs_folder_to_purge_stage(tmp_path, monkeypatch):
+    stage = tmp_path / "binh-thien-chap73"
+    stage.mkdir()
+    (stage / kcpu.STATE_NAME).write_text(json.dumps({"cleaned": True, "remote": "gdrive:a/Chap 73/"}))
+    calls = []
+    monkeypatch.setattr(kcpu, "run", lambda cmd, **kw: calls.append(cmd) or "freed 3.15 GB: deleted x")
+    assert kcpu.main(["purge", str(stage)]) == 0
+    assert calls == [[kcpu.sys.executable, str(kcpu.PURGE_SCRIPT), str(stage),
+                      "--published-to", "gdrive:a/Chap 73/outputs"]]
+    assert kcpu.PURGE_SCRIPT.exists()
+
+
+def test_run_purges_only_after_publish_and_cleanup(tmp_path, monkeypatch):
+    order = []
+    for name in ("submit", "watch", "fetch", "finish", "publish", "cleanup", "purge"):
+        monkeypatch.setattr(kcpu, name, lambda *a, name=name: order.append(name))
+    assert kcpu.main(["run", str(tmp_path), "--remote", "gdrive:a/Chap 73"]) == 0
+    assert order == ["submit", "watch", "fetch", "finish", "publish", "cleanup", "purge"]

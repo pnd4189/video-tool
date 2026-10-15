@@ -10,7 +10,8 @@ publish. The frozen GPU/TPU kernels are never pushed.
     .venv/bin/python .agents/skills/make-video/scripts/kaggle_cpu_render.py run STAGE --remote "gdrive:…/Chap NN"
 
 Steps, each re-runnable (state in STAGE/.kaggle-cpu.json): submit [--dry-run], watch, fetch, finish,
-publish --remote, cleanup [--force], status. Run with the repo venv (PyYAML).
+publish --remote, cleanup [--force], purge, status. `run` ends with purge: the local stage and its
+-dl/-kcpu siblings are deleted once the episode is on Drive. Run with the repo venv (PyYAML).
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ import yaml
 REPO = Path(__file__).resolve().parents[4]
 BOX_SCRIPT = Path(__file__).with_name("kaggle_cpu_box.py")
 BOX_REL = BOX_SCRIPT.relative_to(REPO).as_posix()
+PURGE_SCRIPT = Path(__file__).with_name("purge_stage.py")
 VT = REPO / ".venv/bin/videotool"
 KERNEL_PREFIX = "videotool-cpu-"
 DATASET_PREFIX = "videotool-cpu-job-"
@@ -610,6 +612,18 @@ def cleanup(stage: Path, force: bool) -> None:
     save_state(stage, state)
 
 
+def purge(stage: Path) -> None:
+    """Free this machine: purge_stage.py re-checks the published sizes, keeps the review folder and
+    deletes the stage (this state file with it) plus its -dl/-kcpu siblings. Waits for `cleanup`, so a
+    Kaggle refusal keeps the state needed to retry it."""
+    state = load_state(stage)
+    need(state, "cleaned", "cleanup")
+    out = run([sys.executable, str(PURGE_SCRIPT), str(stage),
+               "--published-to", state["remote"].rstrip("/") + "/outputs"])
+    for line in out.splitlines():
+        say(line)
+
+
 def status(stage: Path) -> None:
     state = load_state(stage)
     print(json.dumps({k: v for k, v in state.items() if k != "result"}, indent=2, ensure_ascii=False))
@@ -619,7 +633,8 @@ def status(stage: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("cmd", choices=("run", "submit", "watch", "fetch", "finish", "publish", "cleanup", "status"))
+    parser.add_argument("cmd", choices=("run", "submit", "watch", "fetch", "finish", "publish", "cleanup", "purge",
+                                           "status"))
     parser.add_argument("stage", type=Path, help="the stage prepared with `videotool prepare --target cloud`")
     parser.add_argument("--slug", help="episode slug (default: the stage folder name)")
     parser.add_argument("--remote", help="rclone path of the episode folder, e.g. gdrive:…/Chap 71")
@@ -638,7 +653,9 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
         steps = {"watch": [watch], "fetch": [fetch], "finish": [finish], "status": [status],
                  "publish": [lambda s: publish(s, args.remote)], "cleanup": [lambda s: cleanup(s, args.force)],
-                 "run": [watch, fetch, finish, lambda s: publish(s, args.remote), lambda s: cleanup(s, False)]}
+                 "purge": [purge],
+                 "run": [watch, fetch, finish, lambda s: publish(s, args.remote), lambda s: cleanup(s, False),
+                         purge]}
         for step in steps.get(args.cmd, []):
             step(stage)
     except LaneError as exc:
