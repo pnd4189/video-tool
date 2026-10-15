@@ -7,7 +7,10 @@ from pathlib import Path
 from videotool.core.errors import DependencyError, RenderError
 
 SUBPROCESS_TIMEOUT_SECONDS = 1800
-LIMITER_CEILING = 0.95
+# The cue sum is capped with no make-up gain: alimiter's default `level` lifted the whole episode
+# +0.45 dB and pushed its peaks back to 0 dBFS. −2 dBFS leaves room for the AAC encoder, which
+# overshot one sharp drum hit by ~1.4 dB (BT Chap 73, 2026-10-15).
+LIMITER_CEILING = 0.79  # −2 dBFS
 
 
 def build_sfx_mix_command(
@@ -44,7 +47,7 @@ def build_sfx_mix_command(
     filter_parts.append(
         f"[0:a]{mix_inputs}amix=inputs={len(cues) + 1}:normalize=0:duration=first[mix]"
     )
-    filter_parts.append(f"[mix]alimiter=limit={LIMITER_CEILING}[a]")
+    filter_parts.append(f"[mix]alimiter=limit={LIMITER_CEILING}:level=disabled[a]")
 
     return [
         "ffmpeg", "-y", "-hide_banner", "-nostats",

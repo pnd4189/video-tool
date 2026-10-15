@@ -64,6 +64,11 @@ Loudness spread is −11..−47 dB mean across files, so set `gain_db` per cue f
 - Each file at most 2 times per episode.
 - Point SFX sit −8..−15 dB under the voice and are NOT ducked. Whisper/drone/wind files (voice band)
   go lower (≈ −20..−24) — at the point level they mask the narration ("léo nhéo").
+- The cue sum is capped at −2 dBFS with no make-up gain (`render/sfx_mix.py`, 2026-10-15). Before,
+  alimiter's default `level` lifted every episode +0.45 dB in the SFX pass and pushed its peaks to
+  0 dBFS: BT 73-75 published at −13.7 LUFS, and BT 73 at +1.2 dBTP where the native AAC encoder
+  overshot one drum hit by ~1.4 dB. Re-mixed at −2 dBFS, BT 73 read −14.2 LUFS and −0.3 dBTP; a lone
+  `review` true-peak WARN between −0.5 and 0 dBTP is that codec overshoot, not clipping.
 
 ## Picking and pinning beats
 

@@ -7,7 +7,7 @@ import pytest
 from videotool.core.errors import ValidationError
 from videotool.core.media_probe import probe_media
 from videotool.core.services import run_sfx
-from videotool.render.sfx_mix import build_sfx_mix_command
+from videotool.render.sfx_mix import build_sfx_mix_command, mix_sfx_onto
 
 
 def _has_ffmpeg() -> bool:
@@ -22,7 +22,7 @@ def test_build_sfx_mix_command_structure() -> None:
     assert "adelay=3000:all=1" in joined  # (2.0 + 1.0) * 1000
     assert "adelay=6000:all=1" in joined  # (5.0 + 1.0) * 1000
     assert "amix=inputs=3:normalize=0:duration=first" in joined
-    assert "alimiter=limit=0.95" in joined
+    assert "alimiter=limit=0.79:level=disabled" in joined  # -2 dBFS, no make-up gain
     # video copied, audio re-encoded at 256k
     assert cmd[cmd.index("-c:v") + 1] == "copy"
     assert "256k" in cmd
@@ -95,3 +95,44 @@ def test_run_sfx_is_idempotent_via_master(tmp_path: Path) -> None:
     # Re-run: mixes from the clean master, so duration stays stable (no stacking / drift).
     assert run_sfx(job_path) == [mp4]
     assert probe_media(mp4).duration == pytest.approx(dur_after_first, abs=0.15)
+
+
+def _level(path: Path, start: float, duration: float) -> tuple[float, float]:
+    """(peak, RMS) dBFS of the decoded audio in [start, start + duration)."""
+    out = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostdin", "-ss", str(start), "-t", str(duration), "-i", str(path),
+         "-af", "astats=measure_overall=Peak_level+RMS_level:measure_perchannel=none", "-f", "null", "-"],
+        capture_output=True, text=True, errors="replace", check=True,
+    ).stderr
+    peak = float(out.split("Peak level dB:")[1].split()[0])
+    rms = float(out.split("RMS level dB:")[1].split()[0])
+    return peak, rms
+
+
+@pytest.mark.skipif(not _has_ffmpeg(), reason="ffmpeg/ffprobe not installed")
+def test_sfx_mix_keeps_the_episode_level_and_caps_the_sum(tmp_path: Path) -> None:
+    # alimiter's default make-up gain lifted every episode +0.45 dB and let a loud sum reach
+    # 0 dBFS; the mix must leave the level alone and keep the sum under the -2 dBFS ceiling.
+    # Stereo like a real render: a mono master comes out 3 dB lower per channel after `-ac 2`.
+    master = tmp_path / "master.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", "color=c=blue:s=320x240:d=6",
+         "-f", "lavfi", "-i", "sine=frequency=220:duration=6,volume=-14dB",
+         "-c:v", "libx264", "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-ac", "2", "-shortest", str(master)],
+        check=True,
+    )
+    loud = tmp_path / "loud.flac"
+    subprocess.run(
+        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+         "-i", "sine=frequency=330:duration=1.5,volume=-1dB", "-ac", "2", "-c:a", "flac", str(loud)],
+        check=True,
+    )
+    mixed = tmp_path / "mixed.mp4"
+    assert mix_sfx_onto(master, mixed, [(loud, 3.0, 0.0)])
+    _, rms_before = _level(master, 0.5, 2.0)
+    _, rms_after = _level(mixed, 0.5, 2.0)  # no cue here: the limiter must not touch the level
+    assert rms_after == pytest.approx(rms_before, abs=0.15)
+    peak, _ = _level(mixed, 3.0, 1.5)  # -14 dBFS tone + -1 dBFS cue would sum past 0 dBFS
+    assert peak <= -1.5
+
