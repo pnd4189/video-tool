@@ -90,6 +90,23 @@ def test_run_package_renders_template_with_chapters_json(tmp_path: Path, monkeyp
     assert "10:00 Chương 12: B" in text
 
 
+def test_run_package_checks_the_video_metadata_renamed(tmp_path: Path, monkeypatch) -> None:
+    # `metadata` renames youtube-16x9.mp4 to the publish title; a package re-run must check that
+    # file, not fail video_exists (Kẻ Trừ Tà Chap 3, 2026-10-13).
+    job_path = _template_job(tmp_path)
+    output_dir = tmp_path / "outputs"
+    output_dir.mkdir()
+    (output_dir / "tap.mp4").write_bytes(b"fake")
+    seen: dict = {}
+    monkeypatch.setattr(services, "validate_package", lambda *a, **k: seen.update(k) or [])
+    monkeypatch.setattr(services, "_generate_thumbnails", lambda _dir, names: seen.update(thumbs=names))
+
+    services.run_package(job_path)
+
+    assert seen["videos"] == {"youtube-16x9": output_dir / "tap.mp4"}
+    assert seen["thumbs"] == ["tap.mp4"]
+
+
 def test_run_package_offsets_chapters_by_intro_cta(tmp_path: Path, monkeypatch) -> None:
     # chapters.json is narration-aligned; with an intro CTA the published timestamps shift by
     # its duration and a 00:00 "Giới thiệu" marker is prepended.

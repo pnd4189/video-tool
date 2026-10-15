@@ -30,12 +30,20 @@ def validate_youtube_video(path: Path, preset_name: str) -> list[QualityCheck]:
     return checks
 
 
-def validate_package(output_dir: Path, expected_videos: list[str] | None = None, require_srt: bool = True) -> list[QualityCheck]:
+def validate_package(
+    output_dir: Path,
+    expected_videos: list[str] | None = None,
+    require_srt: bool = True,
+    videos: dict[str, Path] | None = None,
+) -> list[QualityCheck]:
+    """`videos` maps preset -> file for a video that no longer carries its preset name (renamed by
+    `metadata`); without it each expected `<preset>.mp4` is looked up in `output_dir`."""
     checks: list[QualityCheck] = []
-    expected_videos = expected_videos or ["youtube-16x9.mp4", "shorts-9x16.mp4"]
-    for file_name in expected_videos:
-        preset = file_name.removesuffix(".mp4")
-        checks.extend(validate_youtube_video(output_dir / file_name, preset))
+    if videos is None:
+        names = expected_videos or ["youtube-16x9.mp4", "shorts-9x16.mp4"]
+        videos = {name.removesuffix(".mp4"): output_dir / name for name in names}
+    for preset, path in videos.items():
+        checks.extend(validate_youtube_video(path, preset))
     srt = output_dir / "captions.srt"
     srt_errors = validate_srt(srt)
     status = "fail" if require_srt and srt_errors else "warning" if srt_errors else "pass"

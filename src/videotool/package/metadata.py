@@ -136,6 +136,17 @@ def publish_name(job: JobSpec) -> str:
     return job.project.metadata.filename or safe_filename(job.project.title)
 
 
+def rendered_video(job: JobSpec, output_dir: Path, preset: str) -> Path:
+    """`<preset>.mp4`, or the publish name once `metadata` renamed it, so `sfx` and `package` re-run
+    after it still find the video (Kẻ Trừ Tà Chap 3, 2026-10-13). Only a one-output job falls back:
+    with several outputs, which preset a renamed file came from would be a guess."""
+    video = output_dir / f"{preset}.mp4"
+    if video.exists() or len(job.outputs) != 1:
+        return video
+    renamed = output_dir / f"{publish_name(job)}.mp4"
+    return renamed if renamed.exists() else video
+
+
 def _resolve_outputs(job: JobSpec, output_dir: Path) -> list[Path]:
     """Rendered mp4s to tag. A re-run finds the already-renamed file, so tagging twice is safe."""
     resolved: list[Path] = []

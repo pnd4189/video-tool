@@ -9,6 +9,7 @@ from videotool.package.metadata import (
     build_metadata_args,
     find_exiftool,
     parse_description,
+    rendered_video,
     run_metadata,
     safe_filename,
 )
@@ -136,3 +137,26 @@ def test_run_metadata_tags_and_renames(tmp_path: Path) -> None:
     # Re-running finds the already-renamed file instead of failing on the missing preset name.
     tagged_again, published_again = run_metadata(job_path)
     assert tagged_again == [published] and published_again == published
+
+
+def test_rendered_video_finds_the_publish_name_of_a_one_output_job(tmp_path: Path) -> None:
+    job = load_job(_write_job(tmp_path))
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    assert rendered_video(job, outputs, "youtube-16x9") == outputs / "youtube-16x9.mp4"
+    renamed = outputs / "Ma Tông Song Sát - Tập 39.mp4"
+    renamed.write_bytes(b"x")
+    assert rendered_video(job, outputs, "youtube-16x9") == renamed
+    (outputs / "youtube-16x9.mp4").write_bytes(b"x")  # a fresh render wins over the renamed file
+    assert rendered_video(job, outputs, "youtube-16x9") == outputs / "youtube-16x9.mp4"
+
+
+def test_rendered_video_never_guesses_in_a_multi_output_job(tmp_path: Path) -> None:
+    job_path = _write_job(tmp_path)
+    job_path.write_text(job_path.read_text(encoding="utf-8") + "  - preset: shorts-9x16\n", encoding="utf-8")
+    job = load_job(job_path)
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    (outputs / "Ma Tông Song Sát - Tập 39.mp4").write_bytes(b"x")
+    assert rendered_video(job, outputs, "youtube-16x9") == outputs / "youtube-16x9.mp4"
+    assert rendered_video(job, outputs, "shorts-9x16") == outputs / "shorts-9x16.mp4"

@@ -136,3 +136,31 @@ def test_sfx_mix_keeps_the_episode_level_and_caps_the_sum(tmp_path: Path) -> Non
     peak, _ = _level(mixed, 3.0, 1.5)  # -14 dBFS tone + -1 dBFS cue would sum past 0 dBFS
     assert peak <= -1.5
 
+
+@pytest.mark.skipif(not _has_ffmpeg(), reason="ffmpeg/ffprobe not installed")
+def test_run_sfx_re_mixes_the_file_metadata_renamed(tmp_path: Path) -> None:
+    # After `metadata` the only mp4 carries the publish title ("t" here); a cue fix re-run must
+    # mix onto it instead of reporting that nothing was mixed.
+    (tmp_path / "voice.wav").write_bytes(b"x")
+    (tmp_path / "media").mkdir()
+    (tmp_path / "sfx").mkdir()
+    subprocess.run(
+        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+         "-i", "sine=frequency=900:duration=0.4", "-c:a", "flac", str(tmp_path / "sfx" / "hit.flac")],
+        check=True,
+    )
+    (tmp_path / "outputs").mkdir()
+    renamed = tmp_path / "outputs" / "t.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", "color=c=blue:s=320x240:d=4",
+         "-f", "lavfi", "-i", "sine=frequency=200:duration=4",
+         "-c:v", "libx264", "-c:a", "aac", "-ac", "2", "-shortest", str(renamed)],
+        check=True,
+    )
+    job_path = _write_min_job(
+        tmp_path,
+        enhance="enhance:\n  sfx:\n    cues:\n      - time: 1.0\n        file: sfx/hit.flac\n",
+    )
+    assert run_sfx(job_path) == [renamed]
+    assert (tmp_path / ".videotool" / "sfx-master" / "youtube-16x9.mp4").exists()

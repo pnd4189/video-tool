@@ -21,6 +21,7 @@ from videotool.core.storyboard import natural_sort_key
 from videotool.core.timeline import Timeline, compile_timeline
 from videotool.core.validation import validate_job_paths
 from videotool.package.manifest import write_package_manifest
+from videotool.package.metadata import rendered_video
 from videotool.package.reports import write_quality_report
 from videotool.package.thumbnails import generate_thumbnail_candidates
 from videotool.package.youtube import (
@@ -345,7 +346,7 @@ def run_sfx(job_path: Path) -> list[Path]:
     master_dir = root / ".videotool" / "sfx-master"
     processed: list[Path] = []
     for output in job.outputs:
-        mp4 = output_dir / f"{output.preset}.mp4"
+        mp4 = rendered_video(job, output_dir, output.preset)
         if not mp4.exists():
             continue
         # Keep a pre-SFX master so re-running `sfx` re-mixes from the clean render instead of
@@ -356,6 +357,9 @@ def run_sfx(job_path: Path) -> list[Path]:
             shutil.copy2(mp4, master)
         if mix_sfx_onto(master, mp4, resolved, intro_offset=intro_offset):
             processed.append(mp4)
+            if mp4.name != f"{output.preset}.mp4":
+                console.print(f"[yellow]WARNING[/yellow] {mp4.name} was already tagged by `metadata`; "
+                              "the re-mix dropped the tags, run `videotool metadata` again")
     return processed
 
 
@@ -414,9 +418,9 @@ def run_package(job_path: Path) -> list[object]:
             tags=job.project.tags,
             cta=job.project.cta,
         )
-    _generate_thumbnails(output_dir, [f"{output.preset}.mp4" for output in job.outputs])
-    expected_videos = [f"{output.preset}.mp4" for output in job.outputs]
-    checks = validate_package(output_dir, expected_videos=expected_videos, require_srt=job.package.write_srt)
+    videos = {output.preset: rendered_video(job, output_dir, output.preset) for output in job.outputs}
+    _generate_thumbnails(output_dir, [video.name for video in videos.values()])
+    checks = validate_package(output_dir, require_srt=job.package.write_srt, videos=videos)
     write_quality_report(checks, output_dir / "quality-report.json")
     manifest_path = output_dir / "package-manifest.json"
     files = sorted(path for path in output_dir.iterdir() if path.is_file() and path != manifest_path)
