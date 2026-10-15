@@ -7,6 +7,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from videotool.core.storyboard import ASSET_SCENE_RE, IMAGE_EXTENSIONS, natural_sort_key
 from videotool.creative.checks import MUSIC_SUFFIXES
 from videotool.creative.detect import title_card_candidates
 from videotool.creative.rules import explain_sfx_cues
@@ -171,6 +172,39 @@ def check_title_cards(job_dir: Path, creative: dict, inputs: dict) -> Found:
         warnings.append("no intro_image — the first 10s have no title card")
     if not inputs.get("ending_image"):
         warnings.append(f"no ending_image ({len(ends)} candidate(s)) — the last 10s have no ending card")
+    return [], warnings
+
+
+def _some(numbers: list[int]) -> str:
+    shown = ", ".join(str(n) for n in numbers[:10])
+    return shown + (f" … ({len(numbers)} in all)" if len(numbers) > 10 else "")
+
+
+def check_scene_images(files: list[str]) -> Found:
+    """Generated images carry their scene number ("…SCENE_<n>…"), and the scene-plan and chapter
+    timing join images by it. A file without one (a re-render saved under a description) or a
+    number used twice turns both off; a gap is a scene with no image. BT Chap 69 shipped both
+    unnoticed (2026-10-10). Warnings only: the user decides, Drive stays as it is."""
+    images = [Path(f).name for f in files
+              if f.startswith("Image/") and f.count("/") == 1 and Path(f).suffix.lower() in IMAGE_EXTENSIONS]
+    numbers = {name: int(m.group(1)) for name in images if (m := ASSET_SCENE_RE.search(Path(name).stem))}
+    if len(numbers) * 2 <= len(images):  # this series does not number its images
+        return [], []
+    warnings = []
+    order = sorted(images, key=natural_sort_key)
+    strays = [f"{name} (slot {slot}/{len(order)})" for slot, name in enumerate(order, 1) if name not in numbers]
+    if strays:
+        warnings.append(f"Image/: {len(strays)} file(s) without a SCENE number: {'; '.join(strays[:5])} — "
+                        "plays at that slot, and a scene plan or chapter timing falls back to an even "
+                        "split; tell the user, never rename on Drive")
+    counts = Counter(numbers.values())
+    shared = sorted(n for n, uses in counts.items() if uses > 1)
+    if shared:
+        warnings.append(f"Image/: SCENE number(s) on two files: {_some(shared)} — a scene plan or chapter "
+                        "timing falls back to an even split; tell the user")
+    missing = sorted(set(range(min(1, min(counts)), max(counts) + 1)) - set(counts))
+    if missing:
+        warnings.append(f"Image/: no image for SCENE {_some(missing)} — tell the user before the render")
     return [], warnings
 
 

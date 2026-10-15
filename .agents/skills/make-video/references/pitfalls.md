@@ -29,6 +29,14 @@ seen. New lessons do NOT go here directly — see lessons-inbox.md.
   prompts/text and look at image 1 (chap-15-program-format-from-chap31).
 - Source text jumps (missing scene between chapters) or an image with baked-in text → report to the
   user; do not fix sources yourself (dao-si-chap32, dao-si-chap38).
+- `Image/` file without a SCENE number (a re-render saved under a description) or two files on one
+  number → the scene-plan and chapter timing, which join images by that number, fall back to an even
+  split, and the stray plays wherever its name sorts (last: the natural sort ignores case). A gap is a
+  scene with no image. `creative lint` warns on all three; tell the user, never rename on Drive (BT
+  Chap 69, 2026-10-10: one stray + SCENE_254 missing; agy's note said the stray sorted first, it sorts
+  last — replayed with `natural_sort_key` on the Drive listing, 2026-10-15).
+- A 0-byte voice file (BT Chap 75's `_vi.wav` on Drive, 2026-10-14) → lint stops on it. The TTS
+  original is in `1. CHƯA QA/v2/1. VIENEU/`: stage that copy, tell the user, leave Drive as it is.
 - Checking a source txt for repeated or missing chapters: comparing the file with itself finds repeats
   but hides gaps. Compare against the publisher's table of contents with per-chapter character counts
   (Qidian lists them) and a second full-text copy before calling it complete (ke-tru-ta source,

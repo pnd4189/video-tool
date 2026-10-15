@@ -161,6 +161,7 @@ def _run_checks(report, source, job, creative, data, standin, cta, series_path, 
     report.add(lc.check_bitrate_cap(creative))
     report.add(lc.check_music(creative, job, (data.get("inputs") or {}).get("music"), end_s))
     report.add(lc.check_title_cards(job, creative, data.get("inputs") or {}))
+    report.add(lc.check_scene_images(standin.files))
     stills = story_stills(job, data)
     clips_dir = job / "Parallax"
     clip_files = sum(1 for p in clips_dir.iterdir() if p.is_file()) if clips_dir.is_dir() else 0

@@ -105,7 +105,8 @@ second; sfx-pin interpolates the exact time inside the SRT cue and rewrites `enh
 printing KEEP/DROP per cue. `lint` replays the box's preparation on a stand-in of the folder: 0
 errors required (warnings need a decision). It checks the title against the series list, metadata,
 CJK chars, description length/placeholders, SFX pack files and drops, music coverage, parallax
-coverage, title cards; the preview is the exact description `package` will render.
+coverage, title cards, `Image/` names (no SCENE number, a number used twice, a missing scene) and an
+empty voice file; the preview is the exact description `package` will render.
 
 ## Step 4a — Kaggle render (default)
 

@@ -173,6 +173,9 @@ def build_standin(source: str, job_dir: Path) -> StandIn:
     voice = pick_voice(files)
     if voice is None:
         raise FileNotFoundError(f"no narration audio ({', '.join(AUDIO_EXTS)}) at the root of {source}")
+    if not read_head(source, voice, 1):
+        # BT Chap 75's WAV on Drive was 0 bytes (2026-10-14); the SRT fallback below hid it.
+        raise ValueError(f"{voice} is empty (0 bytes) — upload the real narration before staging")
     texts = [rel for rel in files if is_text(rel)]
     fetch_texts(source, texts, job_dir)
     for rel in files:

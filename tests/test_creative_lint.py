@@ -243,3 +243,39 @@ def test_video_placeholders_carry_the_real_duration(tmp_path: Path) -> None:
         assert dest4.stat().st_size == 0
     finally:
         standin.subprocess.run = orig
+
+
+def test_an_empty_voice_file_stops_lint(tmp_path: Path) -> None:
+    from videotool.creative.lint import lint
+
+    creative = tmp_path / "creative.yaml"
+    creative.write_text("project: {title: X}\n", encoding="utf-8")
+    episode = tmp_path / "episode"
+    episode.mkdir()
+    (episode / "Binh_Thien_Sach_0961_0975_vi.wav").write_bytes(b"")
+    (episode / "Binh_Thien_Sach_0961_0975_vi.srt").write_text("1\n00:00:00,000 --> 00:00:05,000\nx\n", encoding="utf-8")
+    report = lint(str(episode), creative)
+    assert report.errors and "is empty (0 bytes)" in report.errors[0]
+
+
+def _scene(n: int) -> str:
+    return f"Image/____SCENE_{n:03}_____{n}.jpg"
+
+
+def test_scene_images_flag_a_stray_name_a_gap_and_a_shared_number() -> None:
+    files = [_scene(n) for n in range(1, 266) if n != 254]
+    files += ["Image/Meteorite_shatters_into_ice_boul…_20261003172334.jpg", "Image/____SCENE_007_____7 (1).jpg",
+              "Image/notes.txt", "Music/1.wav"]
+    errors, warnings = lc.check_scene_images(files)
+    assert errors == []
+    stray, shared, gap = warnings
+    assert "1 file(s) without a SCENE number: Meteorite_shatters" in stray and "(slot 266/266)" in stray
+    assert "on two files: 7 " in shared
+    assert "no image for SCENE 254 " in gap
+
+
+def test_scene_images_silent_for_a_clean_or_unnumbered_folder() -> None:
+    assert lc.check_scene_images([_scene(n) for n in range(1, 41)]) == ([], [])
+    assert lc.check_scene_images(["Image/a.jpg", "Image/b.png", "Image/scene_1.jpg"]) == ([], [])
+    gap = lc.check_scene_images([_scene(n) for n in range(3, 30)])[1]
+    assert gap == ["Image/: no image for SCENE 1, 2 — tell the user before the render"]
