@@ -1,6 +1,6 @@
 """Free this machine once an episode is published: delete its local stage under ~/.cache/videotool.
 
-Every lane that works in a local stage (Colab CLI, Kaggle CPU, Modal, local) ends here, so a published episode
+Every lane that works in a local stage (Colab CLI, VPS, Kaggle CPU, Modal, local) ends here, so a published episode
 leaves behind only its run log and its review folder (contact sheet + loudness, a few MB), moved to
 `<stage>-review/`. Nothing is deleted unless every file in STAGE/outputs is at the publish path at the
 same size; a refusal deletes nothing. User decision 2026-10-15: clean up automatically, no question.
@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 CACHE_ROOT = Path.home() / ".cache/videotool"
-SIBLING_SUFFIXES = ("-dl", "-kcpu", "-colab")  # the downloaded render and the Kaggle CPU / Colab bundle
+SIBLING_SUFFIXES = ("-dl", "-kcpu", "-colab", "-vps")  # the downloaded render and the Kaggle CPU / Colab / VPS bundle
 REVIEW_SUFFIX = "-review"
 UNPUBLISHED = "thumbnail-candidate-*.jpg"  # never published, so never checked
 
@@ -73,7 +73,7 @@ def tree_bytes(path: Path) -> int:
 
 
 def purge(stage: Path, published_to: str, cache_root: Path = CACHE_ROOT) -> tuple[list[Path], int, Path | None]:
-    """Delete the stage and its -dl/-kcpu/-colab siblings once its outputs are published.
+    """Delete the stage and its -dl/-kcpu/-colab/-vps siblings once its outputs are published.
     Returns the deleted folders, the bytes freed and where the review folder was kept."""
     stage = check_stage(stage, cache_root)
     check_published(stage, published_to)

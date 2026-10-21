@@ -15,7 +15,7 @@ A Chap folder (gdrive path, mount path, or Drive link) containing: voice (`.wav`
 `Image/`, optional `Video/` (b-roll — always used), optional `Parallax/`, `Music/`, the provided
 `*_vi_qa.srt` + `*_vi_qa.txt`, `*_music_prompts.txt`, a scene plan (`*_scene_anchors.md` or
 `.work/scene-plan.md`), `CTA voice/`, a thumbnail folder, an ending image.
-Hints: `Modal` / `local`, FX/overlay wishes, `shorts`/`9x16`/`--all`.
+Hints: `Modal` / `VPS` / `local`, FX/overlay wishes, `shorts`/`9x16`/`--all`.
 
 ## Stop and ask the user (only these)
 
@@ -169,6 +169,16 @@ videotool prepare "$STAGE" --target cloud --creative "$STAGE/creative.yaml"   # 
 VT_JOB_DIR="$STAGE" VT_SLUG=<slug> modal run .agents/skills/make-video/scripts/modal_render.py
 modal volume get vt-<slug> / "$STAGE-dl" --force   # then modal volume delete vt-<slug> --yes
 videotool sfx "$STAGE/job.yaml" && videotool package "$STAGE/job.yaml" && videotool metadata "$STAGE/job.yaml"
+```
+
+## Step 4e — VPS render (only when the user says "VPS")
+
+The Oracle VPS over ssh (`ssh oracle-vps`, 2 ARM cores): the same box as Colab, prepared and finished here, no
+Drive key on the VPS, no narration cap, one job at a time (user 2026-10-21). Read `references/vps-runbook.md`
+first (setup without sudo, speed, signals), stage + prepare as Step 4a, dry run, then:
+
+```bash
+.venv/bin/python .agents/skills/make-video/scripts/vps_render.py run "$STAGE" --remote "gdrive:…/Chap NN"
 ```
 
 ## Step 4d — Kaggle lanes (dormant: the Kaggle account is banned, user 2026-10-20)

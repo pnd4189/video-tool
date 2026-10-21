@@ -222,14 +222,7 @@ def parse_session_line(output: str, session: str) -> dict | None:
     return None
 
 
-def startup_lines(tail: list[str]) -> list[str] | None:
-    """The box's lines up to `render start` (python, ffmpeg, font, disk, bundle, encoder) once that
-    line is there; None before it."""
-    stamped = [line.strip() for line in tail if re.match(r"\[\s*\d+\.\ds\] ", line.strip())]
-    for index, line in enumerate(stamped):
-        if "render start" in line:
-            return stamped[:index + 1]
-    return None
+startup_lines = lane.startup_lines
 
 
 def parse_balance(output: str) -> float | None:

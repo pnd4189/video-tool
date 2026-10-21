@@ -67,6 +67,16 @@ def test_purge_also_deletes_the_colab_bundle_folder(tmp_path, monkeypatch):
     assert colab in removed and not colab.exists()
 
 
+def test_purge_also_deletes_the_vps_bundle_folder(tmp_path, monkeypatch):
+    stage = _stage(tmp_path)
+    vps = tmp_path / "binh-thien-chap73-vps"
+    vps.mkdir()
+    (vps / "bundle.vtb").write_bytes(b"b" * 10)
+    monkeypatch.setattr(purge_stage, "remote_sizes", lambda dest: _published(stage))
+    removed, _, _ = purge_stage.purge(stage, DEST, cache_root=tmp_path)
+    assert vps in removed and not vps.exists()
+
+
 def test_purge_replaces_the_review_of_an_earlier_render(tmp_path, monkeypatch):
     stage = _stage(tmp_path)
     (tmp_path / "binh-thien-chap73-review").mkdir()

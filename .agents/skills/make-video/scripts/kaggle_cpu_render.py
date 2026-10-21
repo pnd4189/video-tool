@@ -407,6 +407,16 @@ def latest_box_line(log_text: str) -> str:
     return (beats or stamped or [""])[-1]
 
 
+def startup_lines(tail: list[str]) -> list[str] | None:
+    """The box's lines up to `render start` (python, ffmpeg, font, disk, bundle, encoder) once that
+    line is there; None before it."""
+    stamped = [line.strip() for line in tail if re.match(r"\[\s*\d+\.\ds\] ", line.strip())]
+    for index, line in enumerate(stamped):
+        if "render start" in line:
+            return stamped[:index + 1]
+    return None
+
+
 def watch(stage: Path) -> None:
     state = load_state(stage)
     need(state, "kernel_id", "submit")

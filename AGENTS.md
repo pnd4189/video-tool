@@ -11,7 +11,7 @@ thumbnail**. Visuals exist only to defeat YouTube's static-frame penalty. Speed-
 
 ## Entry points
 
-- Render an episode (Colab CLI by default, Modal or local): `.agents/skills/make-video/SKILL.md`
+- Render an episode (Colab CLI by default, Modal, VPS on request, or local): `.agents/skills/make-video/SKILL.md`
   (Claude: `/make-video <folder> [hints]`; agy/codex: the `make-video` skill).
 - Local render with pre-rendered parallax clips: `.agents/skills/parallax-video/SKILL.md`.
 - References (load only when the step needs them): `.agents/skills/make-video/references/`
@@ -104,10 +104,10 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
 - **Atmosphere overlay = one clip from the local CC0/generated library**
   `~/.local/share/videotool/overlays/`, screen-blended in `gbrp` (never yuv420p — magenta tint).
   Masters stay on gdrive `KHÁC/HIỆU ỨNG VIDEO/`. *(2026-06-18; durable dir 2026-06-21.)* → fx-parallax.md
-- **Default render = Colab CLI on a high-RAM CPU VM** (`scripts/colab_render.py`, no browser tab):
-  prepared and finished here, the VM runs the Kaggle CPU box (x264 faster, overlays baked), no Drive key
-  on it; 0.26 CU/h of the AI Pro plan's 200 CU/month. Order: Colab CLI 1st, Modal 2nd *(2026-10-20:
-  Kaggle account banned)* → colab-runbook.md. Dormant: Kaggle GPU/TPU notebooks *(2026-07-11)* →
+- **Default render = Colab CLI on a high-RAM CPU VM** (`scripts/colab_render.py`, no browser tab): prepared and
+  finished here, the VM runs the Kaggle CPU box, no Drive key on it; 0.26 CU/h of 200 CU/month (AI Pro). Order:
+  Colab CLI 1st, Modal 2nd *(2026-10-20: Kaggle account banned)* → colab-runbook.md; the Oracle VPS on request
+  only, no narration cap *(2026-10-21)* → vps-runbook.md. Dormant: Kaggle GPU/TPU notebooks *(2026-07-11)* →
   kaggle-runbook.md; Kaggle CPU lane *(2026-10-12; baked + safety net 2026-10-13)* → kaggle-cpu-runbook.md.
 - **Local and cloud job preparation merge into one package step** (`videotool.creative`, driven by
   `videotool prepare` / `Colab/cloud_director.py`; `videotool creative lint` + `sfx-pin` check the
