@@ -34,6 +34,8 @@ until a full episode runs: ~4–5 h for 2 h 20 of narration, ~7.5–8.5 h for 4 
   only) or under 20 GB is free.
 - **No narration cap and no safety-net stop** (user 2026-10-21): the VPS has no session wall, and the safety net
   would leave unfinished clips for this machine to render.
+- **Bitrate cap by length**: 2500k from ~2 h, 2200k from ~3.5 h, 2000k from ~3.9 h — the published mp4 must stay
+  under 4.5 GB (`verify`), and the file runs ~2 % over (cap + 256 kbps) × duration.
 - **Same code as the other lanes**: the shared preflight (code parity with `origin/main`, credential scan).
 - This machine must be on for `submit` (upload) and from `fetch` on (download, finish, publish). In between the
   box runs on its own: the driver may stop; re-run `watch`.

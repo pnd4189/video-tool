@@ -84,7 +84,8 @@ keys — `videotool prepare --target local --creative creative.yaml` applies the
 - No parallax key: `Parallax/` clips link on their own, stills without a clip render as Ken Burns.
   `enhance.parallax` + `parallax_on_box` only when the user asked for on-box depth. Overlay/mood only
   per the ask-user gate → `references/fx-parallax.md`.
-- `render.bitrate_cap: 2500k` for long episodes (≥ ~2h), `2200k` for ≥ ~3.5h (kaggle-runbook.md).
+- `render.bitrate_cap: 2500k` for long episodes (≥ ~2h), `2200k` for ≥ ~3.5h (kaggle-runbook.md), `2000k`
+  for ≥ ~3.9h — VPS only, the other lanes stop at 3.5h (2200k left a 3.95h episode ~1 % under 4.5 GB).
 - Description template: build `<stem>_DESCRIPTION_TEMPLATE.txt` from the previous episode's
   rendered description.
 Keep a working folder `plans/scratch-<slug>/` (slug `binh-thien-chapNN` / `dao-si-chapNN`) with the

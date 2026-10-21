@@ -58,7 +58,7 @@ def test_box_pins_the_faster_profile_with_overlays_baked(tmp_path: Path) -> None
     data = yaml.safe_load(job.read_text(encoding="utf-8"))
     assert data["render"] == {"encoder": "libx264-faster-capped-2500k", "bake_overlays": True}
     assert len(data["storyboard"]) == 3
-    for cap in ("", "-2500k", "-2200k"):
+    for cap in ("", "-2500k", "-2200k", "-2000k"):
         assert box.require_cpu_encoder(f"{box.CPU_PROFILE}{cap}") in PROFILES
 
 

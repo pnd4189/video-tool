@@ -136,7 +136,7 @@ def test_job_flag_defaults_off_and_reaches_the_plan(tmp_path: Path, monkeypatch:
 
 
 def test_faster_profiles_keep_the_vbv_caps() -> None:
-    for cap, maxrate in (("", "2800k"), ("-2500k", "2500k"), ("-2200k", "2200k")):
+    for cap, maxrate in (("", "2800k"), ("-2500k", "2500k"), ("-2200k", "2200k"), ("-2000k", "2000k")):
         profile = PROFILES[f"libx264-faster-capped{cap}"]
         assert (profile.encoder, profile.preset, profile.crf) == ("libx264", "faster", 20)
         assert profile.extra_args[:2] == ("-maxrate", maxrate)

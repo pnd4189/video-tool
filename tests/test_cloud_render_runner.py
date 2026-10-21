@@ -207,6 +207,18 @@ def test_bitrate_cap_2200k_for_3h_plus_episodes(tmp_path: Path) -> None:
     assert "h264_nvenc-capped-2200k" in PROFILES
 
 
+def test_bitrate_cap_2000k_for_4h_episodes(tmp_path: Path) -> None:
+    # A 3.95h episode (VPS lane, no narration cap) lands ~4.46 GB at 2200k with the ~2 % container
+    # overshoot, a hair under the 4.5 GB budget; 2000k keeps it near 4.1 GB.
+    from videotool.render.profiles import PROFILES
+
+    creative = tmp_path / "creative.yaml"
+    creative.write_text("render:\n  bitrate_cap: 2000k\n", encoding="utf-8")
+    assert rr._bitrate_cap(creative) == "2000k"
+    assert rr._apply_bitrate_cap("libx264-faster-capped", "2000k") == "libx264-faster-capped-2000k"
+    for name in ("libx264-balanced-capped-2000k", "h264_nvenc-capped-2000k", "libx264-faster-capped-2000k"):
+        assert "2000k" in PROFILES[name].extra_args
+
 def test_bitrate_cap_absent_keeps_the_probed_profile(tmp_path: Path) -> None:
     creative = tmp_path / "creative.yaml"
     creative.write_text("enhance:\n  sfx:\n    pack: binh-thien\n", encoding="utf-8")

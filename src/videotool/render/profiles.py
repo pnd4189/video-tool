@@ -53,6 +53,17 @@ PROFILES = {
         "h264_nvenc-capped-2200k", "h264_nvenc", "p5", None,
         extra_args=("-rc", "vbr", "-cq", "23", "-maxrate", "2200k", "-bufsize", "4400k"),
     ),
+    # For ~3.9h+ episodes, which only the VPS lane renders (no narration cap there): at 2200k a 3.95h
+    # episode lands ~4.46 GB with the measured ~2 % container overshoot, a hair under 4.5 GB; 2000k
+    # keeps it near 4.1 GB.
+    "libx264-balanced-capped-2000k": RenderProfile(
+        "libx264-balanced-capped-2000k", "libx264", "medium", 20,
+        extra_args=("-maxrate", "2000k", "-bufsize", "4000k"),
+    ),
+    "h264_nvenc-capped-2000k": RenderProfile(
+        "h264_nvenc-capped-2000k", "h264_nvenc", "p5", None,
+        extra_args=("-rc", "vbr", "-cq", "23", "-maxrate", "2000k", "-bufsize", "4000k"),
+    ),
     # x264 `faster` with the same CRF and VBV ceilings, for the CPU-only Kaggle box: −22 % clip time
     # against `medium`, and with overlays baked into the clips (one encode instead of two) the result
     # measured sharper than the medium two-encode path (SSIM 0.956 vs 0.950, Chap 71 bench 2026-10-13).
@@ -67,6 +78,10 @@ PROFILES = {
     "libx264-faster-capped-2200k": RenderProfile(
         "libx264-faster-capped-2200k", "libx264", "faster", 20,
         extra_args=("-maxrate", "2200k", "-bufsize", "4400k"),
+    ),
+    "libx264-faster-capped-2000k": RenderProfile(
+        "libx264-faster-capped-2000k", "libx264", "faster", 20,
+        extra_args=("-maxrate", "2000k", "-bufsize", "4000k"),
     ),
 }
 
