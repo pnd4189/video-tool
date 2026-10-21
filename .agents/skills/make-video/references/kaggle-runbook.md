@@ -1,5 +1,8 @@
 # Kaggle render runbook
 
+> **Dormant since 2026-10-20: the Kaggle account is banned (user).** Kept for reference; the default
+> render is the Colab CLI lane (`colab-runbook.md`).
+
 The render box runs NO LLM. The agent authors `creative.yaml` locally, stages three files, the user
 clicks **Save & Run All**, the box renders and publishes to `<source>/outputs/`. Detail on the
 architecture: `docs/cloud-render-setup.md`. Sources: memories `render-on-kaggle-runbook`,

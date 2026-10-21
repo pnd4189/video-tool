@@ -11,12 +11,12 @@ thumbnail**. Visuals exist only to defeat YouTube's static-frame penalty. Speed-
 
 ## Entry points
 
-- Render an episode (Kaggle GPU/TPU/CPU, Modal or local): `.agents/skills/make-video/SKILL.md`
+- Render an episode (Colab CLI by default, Modal or local): `.agents/skills/make-video/SKILL.md`
   (Claude: `/make-video <folder> [hints]`; agy/codex: the `make-video` skill).
 - Local render with pre-rendered parallax clips: `.agents/skills/parallax-video/SKILL.md`.
 - References (load only when the step needs them): `.agents/skills/make-video/references/`
-  — `kaggle-runbook.md`, `sfx-music.md`, `description-metadata.md`, `fx-parallax.md`,
-  `pitfalls.md`, `series.yaml`, `lessons-inbox.md`, `modal-runbook.md`, `kaggle-cpu-runbook.md`.
+  — `colab-runbook.md`, `modal-runbook.md`, `sfx-music.md`, `description-metadata.md`, `fx-parallax.md`,
+  `pitfalls.md`, `series.yaml`, `lessons-inbox.md`; Kaggle (dormant): `kaggle-runbook.md`, `kaggle-cpu-runbook.md`.
 - Cloud architecture and setup: `docs/cloud-render-setup.md`, `docs/cloud-gpu-whisper-setup.md`.
 
 ## Asset folder convention (short)
@@ -104,11 +104,11 @@ Detail and mechanics live in the linked reference. Ask the user before changing 
 - **Atmosphere overlay = one clip from the local CC0/generated library**
   `~/.local/share/videotool/overlays/`, screen-blended in `gbrp` (never yuv420p — magenta tint).
   Masters stay on gdrive `KHÁC/HIỆU ỨNG VIDEO/`. *(2026-06-18; durable dir 2026-06-21.)* → fx-parallax.md
-- **Full cloud render on Kaggle** (`Colab/cloud_render_runner.py`): the agent authors `creative.yaml`
-  locally, the box runs no LLM (`autonomous=True` fallback only), NVENC or x264 with resumable Drive
-  checkpoints, results publish to the source folder. Order: Kaggle 1st, Modal 2nd, Colab 3rd *(2026-07-11;
-  order 2026-10-07)* → kaggle-runbook.md. **CPU lane** *(2026-10-12)*: no Drive key; overlays baked per clip +
-  x264 faster, the box ships its clips before the wall *(2026-10-13)* → kaggle-cpu-runbook.md
+- **Default render = Colab CLI on a high-RAM CPU VM** (`scripts/colab_render.py`, no browser tab):
+  prepared and finished here, the VM runs the Kaggle CPU box (x264 faster, overlays baked), no Drive key
+  on it; 0.26 CU/h of the AI Pro plan's 200 CU/month. Order: Colab CLI 1st, Modal 2nd *(2026-10-20:
+  Kaggle account banned)* → colab-runbook.md. Dormant: Kaggle GPU/TPU notebooks *(2026-07-11)* →
+  kaggle-runbook.md; Kaggle CPU lane *(2026-10-12; baked + safety net 2026-10-13)* → kaggle-cpu-runbook.md.
 - **Local and cloud job preparation merge into one package step** (`videotool.creative`, driven by
   `videotool prepare` / `Colab/cloud_director.py`; `videotool creative lint` + `sfx-pin` check the
   same rules before staging). Reverses the 2026-07-11 "local flow byte-unchanged, cloud is a

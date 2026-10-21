@@ -1,7 +1,7 @@
 ---
 name: make-video
-description: "Render an audio-story YouTube episode (Bình Thiên Sách, Đạo Sĩ Sợ Ma, …) from an asset folder, on Kaggle (default), Modal (backup) or locally: author the creative layer, stage, render, verify, publish. Use when the user says render / make video / render on Kaggle / render on Modal, or points at a Chap folder."
-argument-hint: "<folder path or Drive link> [hints: GPU|TPU|CPU|Modal|local, overlay/FX, title, shorts]"
+description: "Render an audio-story YouTube episode (Bình Thiên Sách, Đạo Sĩ Sợ Ma, …) from an asset folder, on a Colab high-RAM CPU VM through the Colab CLI (default, no browser), Modal (backup) or locally: author the creative layer, stage, render, verify, publish. Use when the user says render / make video / render on Colab / render on Modal, or points at a Chap folder."
+argument-hint: "<folder path or Drive link> [hints: Modal|local, overlay/FX, title, shorts]"
 ---
 
 # make-video
@@ -15,7 +15,7 @@ A Chap folder (gdrive path, mount path, or Drive link) containing: voice (`.wav`
 `Image/`, optional `Video/` (b-roll — always used), optional `Parallax/`, `Music/`, the provided
 `*_vi_qa.srt` + `*_vi_qa.txt`, `*_music_prompts.txt`, a scene plan (`*_scene_anchors.md` or
 `.work/scene-plan.md`), `CTA voice/`, a thumbnail folder, an ending image.
-Hints: `GPU` / `TPU` / `local`, FX/overlay wishes, `shorts`/`9x16`/`--all`.
+Hints: `Modal` / `local`, FX/overlay wishes, `shorts`/`9x16`/`--all`.
 
 ## Stop and ask the user (only these)
 
@@ -25,7 +25,7 @@ Hints: `GPU` / `TPU` / `local`, FX/overlay wishes, `shorts`/`9x16`/`--all`.
    the user already named it or said "không cần hỏi". No hint → render clean, propose nothing.
 3. **`Parallax/` partly filled** (fewer clips than `Image/`, or clips matching no image — lint warns),
    or no voice / no SRT / zero images and clips. No `Parallax/` at all is not a question: Ken Burns.
-4. Runtime unclear and the difference matters (TPU queue vs GPU speed) — one question.
+4. Narration over the Colab lane's cap (3.5 h): Modal or local — one question.
 Everything else: decide, act, report at the end.
 
 ## Hard safety rules
@@ -43,6 +43,11 @@ Everything else: decide, act, report at the end.
 - Modal spends a prepaid credit: run it only when the user named Modal in this request, do the budget
   checklist and have the user confirm the limits once per session (`references/modal-runbook.md`).
   agy's guard does not block `modal`; the discipline is yours.
+- Colab spends the account's monthly compute units, shared with the user's other projects: VMs only
+  through `scripts/colab_render.py` — never `colab new`/`run`/`ssh` by hand, never `--gpu`/`--tpu`, never
+  `colab pay`. The script stops its VM after the download and after a box failure; after any other
+  `FAILED:` look at `colab --config ~/.config/colab-cli/videotool-sessions.json sessions` and report a VM
+  still listed (`references/colab-runbook.md`). agy's guard does not block `colab` either.
 - In agy a `PreToolUse` guard enforces that list (`videotool agent guard`). A block is final: read
   the reason, stop, and tell the user — do not look for another way round it. Your own working
   folder is `plans/scratch-<slug>/`; the staged copy under `$HOME/.cache/videotool/<name>` and
@@ -62,7 +67,7 @@ Everything else: decide, act, report at the end.
 
 ## Step 2 — Author the creative layer
 
-Write `creative.yaml` (Kaggle, and locally the same file feeds `videotool prepare`). Local
+Write `creative.yaml` (every lane: `videotool prepare` builds the job from it). Local
 `job.yaml` has no `captions.renumber`, `render.bitrate_cap`, `enhance.overlay` or `project.chapters`
 keys — `videotool prepare --target local --creative creative.yaml` applies them for you. Start from
 `examples/creative-binh-thien.yaml` or `examples/creative-dao-si.yaml`.
@@ -108,22 +113,19 @@ CJK chars, description length/placeholders, SFX pack files and drops, music cove
 coverage, title cards, `Image/` names (no SCENE number, a number used twice, a missing scene) and an
 empty voice file; the preview is the exact description `package` will render.
 
-## Step 4a — Kaggle render (default)
+## Step 4a — Colab render (default)
+
+Colab CLI, high-RAM CPU VM, no browser tab (user 2026-10-20; the Kaggle account is banned). Like Modal,
+Colab only renders: the episode is staged, prepared and finished on this machine and no Drive key goes
+to the VM. A keeper cell keeps the kernel busy, its exec attached from here; with nothing connected Colab
+took the VM about 3 h after the last contact, also about 3 h after it started (runbook, measured 2026-10-20;
+which clock counts is not known), so keep this machine on and the driver running until the run ends (it
+also downloads, finishes and publishes here). Narration ≤ 3.5 h. agy
+may run it. Read `references/colab-runbook.md` first (stage + prepare as its Flow says), dry run, then:
 
 ```bash
-.venv/bin/videotool cloud stage "<gdrive:… source>" --creative creative.yaml --runtime gpu|tpu \
-    [--slug <slug>] [--scene-workers 32] [--resume | --fresh] [--template <file>] [--dry-run]
+.venv/bin/python .agents/skills/make-video/scripts/colab_render.py run "$STAGE" --remote "gdrive:…/Chap NN"
 ```
-The box reads Drive through rclone, so the source is the `gdrive:` path (a mount path is converted);
-give the folder's path, not a Drive folder-id link — the slug cannot be derived from one.
-Stage runs the lint gate + every guard, uploads creative (+ template) and the runtime's config
-(never `repo_ref`), then pings Telegram. One stage per episode at a time. Its last line is
-`KẾT QUẢ: ĐÃ STAGE …` or `KẾT QUẢ: CHƯA STAGE — …`: quote it verbatim, and only tell the user to run
-the kernel after `ĐÃ STAGE`. After a run, the episode's checkpoint holds a pinned job.yaml the box
-resumes from: `--resume` continues it, `--fresh` deletes that checkpoint so a changed creative is
-used. Tell the user to open that runtime's kernel and Save &
-Run All — `videotool-watchd` watches, verifies, notifies and cleans the config on its own. Details:
-`references/kaggle-runbook.md`.
 
 ## Step 4b — Local render (user says "local")
 
@@ -158,7 +160,7 @@ Shorts only on request: add `{preset: shorts-9x16}` to `outputs:` and `render --
 
 ## Step 4c — Modal render (backup runtime, user says "Modal")
 
-Kaggle is #1, Modal #2, Colab #3. Modal only renders: the job is prepared and finished locally, no Drive
+Colab CLI is #1 (Step 4a), Modal #2. Modal only renders: the job is prepared and finished locally, no Drive
 credentials go to Modal. Everything (budget checklist, commands, expected signals, cleanup) is in
 `references/modal-runbook.md` — read it before the first command. Shape:
 
@@ -169,16 +171,11 @@ modal volume get vt-<slug> / "$STAGE-dl" --force   # then modal volume delete vt
 videotool sfx "$STAGE/job.yaml" && videotool package "$STAGE/job.yaml" && videotool metadata "$STAGE/job.yaml"
 ```
 
-## Step 4d — Kaggle CPU render (headless, user says "CPU" / "Kaggle CPU")
+## Step 4d — Kaggle lanes (dormant: the Kaggle account is banned, user 2026-10-20)
 
-No browser click, no GPU/TPU quota, no Drive key on Kaggle: prepared and finished locally like Modal,
-rendered on a private per-episode CPU kernel. Narration ≤ 3.5 h; ~1.9 h of render per video-hour (x264
-`faster`, overlays baked into the clips); past 10.75 h the box ships its clips and this machine finishes.
-agy may run it. Read `references/kaggle-cpu-runbook.md` first; dry run, then:
-
-```bash
-.venv/bin/python .agents/skills/make-video/scripts/kaggle_cpu_render.py run "$STAGE" --remote "gdrive:…/Chap NN"
-```
+Only if the user says the account is back. GPU/TPU notebook: `videotool cloud stage … --runtime gpu|tpu`
+and the user's Save & Run All, all in `references/kaggle-runbook.md`. Headless CPU kernel:
+`scripts/kaggle_cpu_render.py`, `references/kaggle-cpu-runbook.md` (the Colab lane runs its box script).
 
 ## Step 5 — Verify and report
 

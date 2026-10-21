@@ -1,7 +1,8 @@
-# Modal render runbook (runtime #2, after Kaggle)
+# Modal render runbook (runtime #2, after the Colab CLI)
 
-GPU runtime order, user decision 2026-10-07: **Kaggle 1st, Modal 2nd, Colab 3rd.** Use Modal when the
-user says "Modal", or when Kaggle is queued/out of quota. Modal is a pure compute helper here: the
+Runtime order, user decision 2026-10-20: **Colab CLI 1st, Modal 2nd** (the Kaggle account is banned; the
+2026-10-07 order was Kaggle 1st, Modal 2nd, Colab 3rd). Use Modal when the user says "Modal", e.g. for an
+episode over the Colab lane's narration cap (colab-runbook.md). Modal is a pure compute helper here: the
 episode is prepared and finished on this machine, Modal only runs `videotool render` on a T4, and no
 Drive credentials ever go to Modal. Modal runs are invisible to `videotool renders`, the watcher
 daemon and Telegram — say what is happening in the session.

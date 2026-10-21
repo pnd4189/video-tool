@@ -1,5 +1,8 @@
 # Cloud render (parallel system) — setup
 
+> **Dormant since 2026-10-20** (the Kaggle account is banned). The default render is the Colab CLI lane:
+> `.agents/skills/make-video/references/colab-runbook.md`.
+
 Run the **whole** `/make-video` pipeline on a free Kaggle/Colab T4 GPU. **Claude Code CLI is the
 director**: it reads the Drive folder, authors a `creative.yaml` (music schedule, SFX cues, mood,
 atmosphere overlay, description/recap) — the same intelligent work as local `/make-video` — and

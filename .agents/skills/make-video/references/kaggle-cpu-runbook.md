@@ -1,5 +1,8 @@
 # Kaggle CPU render runbook (headless lane)
 
+> **Dormant since 2026-10-20: the Kaggle account is banned (user).** The Colab CLI lane
+> (`colab-runbook.md`) runs this lane's box script and reuses its driver's finish steps.
+
 Use it when the user says "Kaggle CPU" / "CPU", or wants to save GPU/TPU quota and can wait overnight.
 No browser click: the CLI pushes a **new private CPU kernel per episode**. Shaped like Modal: the episode
 is prepared and finished on this machine, Kaggle only renders, and no Drive key goes to Kaggle (the rclone
