@@ -67,9 +67,14 @@ CLI 0.7.4 source, its bundled docs (`colab readme`, `colab skill`) and its desig
 
 ## Speed
 
-chưa đo on a real episode. Same box as the Kaggle CPU lane (x264 `faster`, overlays baked) with 8 scene
-workers instead of 4, so expect faster than Kaggle's ~1.9 h per video-hour — but size nothing from that
-guess or from the 75-s e2e job: record the first real episode's clip rate and total here.
+- **Measured 2026-10-21, BT Chap 76** (2.33 h narration, 248 clips, overlay `qi-gen-01`, 2500k cap, 8 scene
+  workers): ~2 clips/min steady from minute 20 (the first heartbeat's ETA, 190 min, overstated), all clips in
+  ~2 h 04 m, render complete 2.43 h after the box started (box render 2.38 h) = **~1.02 h per video-hour**, about
+  twice the Kaggle CPU box. The VM lived 2 h 29 m (create → stop) for 0.64 CU (~0.27 CU per video-hour); the
+  2.95 GB mp4 came down in 131 s; launch to published on Drive took 2 h 52 m. Budget ~1.05 h per video-hour
+  + ~10 min: the VM reaches the unproven ~3-h mark (above) once narration runs past about 2 h 40 m.
+- Same box on the Oracle VPS (2 Ampere Neoverse-N1 cores, 11 GiB, static ffmpeg 8.1.3, 2 scene workers), chương
+  991 of Chap 77 (724.6 s of video, 20 clips), 2026-10-21: 21.6 min = **1.79 h per video-hour**, ~1.75× slower.
 
 ## Transfers (measured 2026-10-20, 1 GiB random file, sha256 checked)
 
