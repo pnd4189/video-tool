@@ -170,7 +170,7 @@ def test_box_rejects_a_bundle_that_does_not_match_its_manifest(tmp_path):
 
 def test_narration_cap():
     kcpu.check_narration(3.5 * 3600, 3.5)
-    with pytest.raises(kcpu.LaneError, match="GPU/TPU or Modal"):
+    with pytest.raises(kcpu.LaneError, match="exceeds this lane's 3.5 h cap — render it on Modal"):
         kcpu.check_narration(3.5 * 3600 + 1, 3.5)
 
 

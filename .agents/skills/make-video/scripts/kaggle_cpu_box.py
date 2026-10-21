@@ -13,6 +13,9 @@ sfx / package / metadata run locally afterwards.
 Safety net: at `stop_after_s` (manifest) the box stops the render, ships every finished clip as
 `clips.tar` with a `partial` result, and exits cleanly, so the local driver can finish the render
 instead of losing the run to Kaggle's session wall (Chap 71 was cut at 11.5 h with nothing saved).
+
+The Colab CLI lane (colab_render.py) runs this same file on a Colab CPU VM, with VT_BOX_INPUT and
+VT_BOX_WORK pointing the two folders below at /content.
 """
 from __future__ import annotations
 
@@ -30,8 +33,8 @@ import threading
 import time
 from pathlib import Path
 
-INPUT_ROOT = Path("/kaggle/input")
-WORK = Path("/kaggle/working")
+INPUT_ROOT = Path(os.environ.get("VT_BOX_INPUT", "/kaggle/input"))
+WORK = Path(os.environ.get("VT_BOX_WORK", "/kaggle/working"))
 BUNDLE_NAME = "bundle.vtb"  # an uncompressed tar; a neutral suffix so Kaggle never unpacks it on upload
 CLIPS_TAR = "clips.tar"
 SCRATCH_CANDIDATES = (Path("/tmp"), Path("/kaggle/tmp"))

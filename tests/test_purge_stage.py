@@ -57,6 +57,16 @@ def test_purge_deletes_the_stage_and_its_siblings_and_keeps_the_review(tmp_path,
     assert all(p.exists() for p in neighbours)
 
 
+def test_purge_also_deletes_the_colab_bundle_folder(tmp_path, monkeypatch):
+    stage = _stage(tmp_path)
+    colab = tmp_path / "binh-thien-chap73-colab"
+    colab.mkdir()
+    (colab / "bundle.vtb").write_bytes(b"b" * 10)
+    monkeypatch.setattr(purge_stage, "remote_sizes", lambda dest: _published(stage))
+    removed, _, _ = purge_stage.purge(stage, DEST, cache_root=tmp_path)
+    assert colab in removed and not colab.exists()
+
+
 def test_purge_replaces_the_review_of_an_earlier_render(tmp_path, monkeypatch):
     stage = _stage(tmp_path)
     (tmp_path / "binh-thien-chap73-review").mkdir()

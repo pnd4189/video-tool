@@ -12,6 +12,9 @@ publish. The frozen GPU/TPU kernels are never pushed.
 Steps, each re-runnable (state in STAGE/.kaggle-cpu.json): submit [--dry-run], watch, fetch, finish,
 publish --remote, cleanup [--force], purge, status. `run` ends with purge: the local stage and its
 -dl/-kcpu siblings are deleted once the episode is on Drive. Run with the repo venv (PyYAML).
+
+colab_render.py (the Colab CLI lane) imports this module for the backend-neutral steps (preflight,
+bundle, finish, verify, publish, purge) under its own state file and log tag.
 """
 from __future__ import annotations
 
@@ -45,6 +48,7 @@ HASH_LEN = 6
 CODE_PATHS = ("src", "Colab", "pyproject.toml", "README.md")
 BUNDLE_NAME = "bundle.vtb"  # an uncompressed tar; a neutral suffix so Kaggle never unpacks it on upload
 STATE_NAME = ".kaggle-cpu.json"
+TAG = "kcpu"  # log tag; colab_render.py sets its own TAG and STATE_NAME on its import of this module
 KERNEL_TIMEOUT_S = 41_400  # 11.5 h, under Kaggle's 12 h session cap
 # The box stops this long before the timeout and ships its finished clips; this machine finishes the
 # render. Room for the tar (~4 GB, minutes) and for Kaggle to save the output after the script exits.
@@ -72,7 +76,7 @@ class LaneError(RuntimeError):
 
 
 def say(msg: str) -> None:
-    print(f"[kcpu {dt.datetime.now():%H:%M}] {msg}", flush=True)
+    print(f"[{TAG} {dt.datetime.now():%H:%M}] {msg}", flush=True)
 
 
 # --- pure helpers ---------------------------------------------------------------------------------
@@ -143,7 +147,7 @@ def srt_cue_bounds(text: str) -> tuple[float, float]:
 def check_narration(seconds: float, max_hours: float) -> None:
     if seconds > max_hours * 3600:
         raise LaneError(f"narration {seconds / 3600:.2f} h exceeds this lane's {max_hours} h cap "
-                        "(no resume on Kaggle CPU) — render it on GPU/TPU or Modal")
+                        "— render it on Modal or locally")
 
 
 def parse_status(cli_output: str) -> str:
@@ -312,11 +316,9 @@ def build_bundle(stage: Path, out_dir: Path, repo: Path = REPO) -> tuple[Path, s
     return bundle, sha256_file(bundle)
 
 
-def submit(stage: Path, slug: str, max_hours: float, dry_run: bool, force: bool) -> None:
-    state = load_state(stage)
-    if state.get("kernel_id") and not state.get("cleaned") and not force:
-        raise LaneError(f"{stage.name} already has a run ({state['kernel_id']}, {state.get('status')}); "
-                        "finish/cleanup it, or pass --force")
+def preflight(stage: Path, max_hours: float) -> tuple[float, float, float]:
+    """The checks before anything leaves this machine: a validated job, the code the other lanes run,
+    narration under the cap, no credentials. Returns (intro CTA, narration, outro CTA) seconds."""
     if not (stage / "job.yaml").exists():
         raise LaneError(f"{stage}/job.yaml missing — run `videotool prepare {stage} --target cloud …` first")
     run([str(VT), "validate", str(stage / "job.yaml")])
@@ -330,7 +332,15 @@ def submit(stage: Path, slug: str, max_hours: float, dry_run: bool, force: bool)
     hits = scan_credentials(stage)
     if hits:
         raise LaneError(f"possible credentials in the stage, refusing to upload: {hits}")
-    intro, narration, outro = expected_seconds(stage)
+    return expected_seconds(stage)
+
+
+def submit(stage: Path, slug: str, max_hours: float, dry_run: bool, force: bool) -> None:
+    state = load_state(stage)
+    if state.get("kernel_id") and not state.get("cleaned") and not force:
+        raise LaneError(f"{stage.name} already has a run ({state['kernel_id']}, {state.get('status')}); "
+                        "finish/cleanup it, or pass --force")
+    intro, narration, outro = preflight(stage, max_hours)
     owner = kaggle_owner()
 
     out_dir = stage.parent / f"{stage.name}-kcpu"
