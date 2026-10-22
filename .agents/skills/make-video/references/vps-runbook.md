@@ -29,7 +29,15 @@ Sources: setup and a 12-min benchmark on the VPS, 2026-10-21; the first full epi
 - **BT Chap 82, the first full episode** (3 h 57 of narration, 303 clips, 2000k cap), 2026-10-21/22: box render
   8.73 h = 2.21 h per video-hour, while another project's ffmpeg + headless-chromium job shared the two cores
   for part of the night; clips ~8.5 h, mux ~15 min. Up: 921 MiB in 37 s. **Down: the 4.08 GB mp4 took 42 min**
-  (~1.6 MB/s); sfx, package, review and publish ~25 min more. Submit → published: 9.9 h.
+  (~1.6 MB/s, one stream); sfx, package, review and publish ~25 min more. Submit → published: 9.9 h.
+- **BT Chap 77 and 78** (2 h 16 and 2 h 23 of narration, 243 and 254 clips, 2500k cap), 2026-10-22, the VPS
+  alone: box render 4.10 h and 4.41 h = **1.81 and 1.85 h per video-hour**. Down, one stream: 2.87 GB in
+  28.5 min, 3.02 GB in 29 min; sfx, package, review and publish ~20 min. Submit → published: 5.0 h and 5.2 h.
+- Load: both cores are full while the clips render (load ~10.5 in the heartbeats; a `ps` snapshot during Chap 78
+  showed the two ffmpeg at 101 % + 87 % CPU, ~0.4 GB RAM each of 11.9 GB), load ~1.8 during the mux. Anything
+  else on the VPS meanwhile (VieNeu TTS, another project's job) slows both, as on the Chap 82 night.
+- Plan with ~1.85 h of render per video-hour alone, plus ~25 min for the 4-stream download, finish and publish
+  (expected: the 4-stream download is not yet measured on a real episode).
 
 ## Rules
 
