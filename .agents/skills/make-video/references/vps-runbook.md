@@ -60,8 +60,9 @@ Sources: setup and a 12-min benchmark on the VPS, 2026-10-21; the first full epi
    `uploaded in Ns` → `box started on oracle-vps (pid …)` → the box's first lines (`box: python 3.12.3 | 2 cpu`,
    `ffmpeg: … n8.1.3`, `font:`, `bundle ok`, `encoder pinned: libx264-faster-capped…`, `render start (2 scene
    workers, N scenes)`) → `heartbeat: N/M clips` every 5 min → `render COMPLETE on the VPS after X h` →
-   `downloading … GB` → `downloaded in Ns, sha256 ok` → `freed the VPS …` → `fetched …` → `sfx mixed` →
-   `package QA …` → `verified …` → `published N files, sizes match` → `freed …`. **Stop and look** at `FAILED:`.
+   `downloading … GB, 4 streams` → `downloaded in Ns (… MB/s), sha256 ok` → `freed the VPS …` → `fetched …` →
+   `sfx mixed` → `package QA …` → `verified …` → `published N files, sizes match` → `freed …`. **Stop and look**
+   at `FAILED:`.
 4. Verify as SKILL.md step 5. Local cleanup is automatic (`$STAGE-vps/` goes too).
 
 ## Recovering
@@ -79,5 +80,7 @@ Every step re-runs from `$STAGE/.vps.json`: `watch`, `fetch`, `finish`, `publish
   backgrounds the whole `&&` list, which then holds the session until the box ends (the first manual test hung
   that way). The driver launches through a detached `Popen` and `ssh -n`.
 - The box unpacks into `/tmp/vt` without clearing it: the launch deletes it first (one job at a time).
-- The download is the slow leg: one `scp` stream VPS → here ran ~1.6 MB/s on 2026-10-22, against ~25 MB/s the
-  other way, so a 4 GB render needs ~40 min to come down (cause not measured).
+- One ssh stream VPS → here is capped: ~1.6 MB/s for the Chap 82 and 77 renders (2026-10-22), against ~25 MB/s
+  the other way (cause not measured). `fetch` therefore pulls the mp4 in 128 MiB pieces over 4 ssh connections at
+  once, each written in place, then checks the sha256. A 1 GiB test the same afternoon, while the VPS rendered:
+  1 stream 2.4 MiB/s, **4 streams 15.9 MiB/s**, 8 streams 12.2 MiB/s.

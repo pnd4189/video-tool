@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -78,6 +79,7 @@ class FakeVPS:
 
     def __init__(self, home: Path):
         self.home, self.copies_to, self.load1 = home, [], 0.1
+        self.sizes_from = {}
         (home / vr.FFMPEG_BIN).mkdir(parents=True)
         (home / vr.FFMPEG_BIN / "ffmpeg").write_text("#!/bin/sh\n")
         (home / vr.FFMPEG_BIN / "ffmpeg").chmod(0o755)
@@ -101,7 +103,8 @@ class FakeVPS:
         for path in local:
             shutil.copy(path, self.home / remote_dir / path.name)
 
-    def copy_from(self, remote_path, local):
+    def copy_from(self, remote_path, local, size=None):
+        self.sizes_from[Path(remote_path).name] = size
         local.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(self.home / remote_path, local)
 
@@ -244,6 +247,70 @@ def test_clean_stops_the_box_and_frees_only_what_this_job_holds(tmp_path):
     assert out["released"] and not scratch.exists() and not (tmp_path / "jobs/.lock").exists()
 
 
+# --- the download in pieces ------------------------------------------------------------------------
+
+@pytest.fixture
+def pieces(monkeypatch):
+    """Each piece's ssh runs its command here with this Python; returns the (offset, length) pieces asked."""
+    asked = []
+
+    def argv(*args):
+        asked.append((int(args[4]), int(args[5])))
+        return [sys.executable, *args[1:]]
+
+    monkeypatch.setattr(vr, "ssh_argv", argv)
+    monkeypatch.setattr(vr, "PIECE_BYTES", 1000)
+    monkeypatch.setattr(vr, "RETRY_PAUSE_S", 0)
+    return asked
+
+
+def test_ssh_quotes_each_argument_for_the_vps_shell():
+    argv = vr.ssh_argv("python3", "-c", "print('a b')", "dir with space/x.mp4")
+    assert argv[:2] == ["ssh", "-n"] and argv[-2] == vr.HOST
+    assert shlex.split(argv[-1]) == ["python3", "-c", "print('a b')", "dir with space/x.mp4"]
+
+
+def test_a_big_file_comes_down_in_pieces_written_in_place(tmp_path, pieces):
+    data = os.urandom(4500)
+    (tmp_path / "vps.mp4").write_bytes(data)
+    vr.copy_from(str(tmp_path / "vps.mp4"), tmp_path / "dl/youtube-16x9.mp4", len(data))
+    assert (tmp_path / "dl/youtube-16x9.mp4").read_bytes() == data
+    assert sorted(pieces) == [(0, 1000), (1000, 1000), (2000, 1000), (3000, 1000), (4000, 500)]
+
+
+def test_a_small_file_or_one_of_unknown_size_takes_one_scp(tmp_path, monkeypatch, pieces):
+    sent = []
+    monkeypatch.setattr(vr, "scp", lambda sources, dest, timeout=None: sent.append(sources))
+    vr.copy_from("jobs/x/work/box.log", tmp_path / "box.log")
+    vr.copy_from("jobs/x/work/job.yaml", tmp_path / "job.yaml", 1000)
+    assert sent == [[f"{vr.HOST}:jobs/x/work/box.log"], [f"{vr.HOST}:jobs/x/work/job.yaml"]] and pieces == []
+
+
+def test_a_broken_piece_is_fetched_again(tmp_path, monkeypatch, pieces):
+    data = os.urandom(3000)
+    (tmp_path / "vps.mp4").write_bytes(data)
+    recorded, broken = vr.ssh_argv, []
+
+    def argv(*args):
+        command = recorded(*args)
+        if args[4] == "1000" and not broken:  # the middle piece's first try dies after 10 bytes
+            broken.append(args)
+            return [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'x' * 10); sys.exit(255)"]
+        return command
+
+    monkeypatch.setattr(vr, "ssh_argv", argv)
+    vr.copy_from(str(tmp_path / "vps.mp4"), tmp_path / "dl.mp4", len(data))
+    assert (tmp_path / "dl.mp4").read_bytes() == data
+    assert sorted(pieces) == [(0, 1000), (1000, 1000), (1000, 1000), (2000, 1000)]
+
+
+def test_a_piece_that_keeps_failing_stops_the_download(tmp_path, pieces):
+    (tmp_path / "vps.mp4").write_bytes(os.urandom(4500))  # 500 bytes short of the size the VPS listed
+    with pytest.raises(lane.LaneError, match=r"bytes 4000\+1000 of .*: got 500"):
+        vr.copy_from(str(tmp_path / "vps.mp4"), tmp_path / "dl.mp4", 5000)
+    assert pieces.count((4000, 1000)) == vr.PIECE_ATTEMPTS
+
+
 # --- the flow against a fake VPS -------------------------------------------------------------------
 
 def test_dry_run_uploads_nothing(tmp_path, monkeypatch, vps, capsys):
@@ -267,6 +334,7 @@ def test_submit_watch_fetch_render_and_free_the_vps(tmp_path, monkeypatch, vps, 
     state = lane.load_state(stage)
     dl = tmp_path / "binh-thien-chap82-dl"
     assert state["fetched"] and state["cleaned"] and (dl / "youtube-16x9.mp4").exists()
+    assert vps.sizes_from["youtube-16x9.mp4"] == 5000 and vps.sizes_from["job.yaml"] is None  # only the mp4 in pieces
     assert state["result"]["path"] == str(vps.home / vr.FFMPEG_BIN)  # the box ran with the static ffmpeg first
     assert not (vps.home / state["job_dir"]).exists() and not (vps.home / vr.LOCK).exists()
     out = capsys.readouterr().out

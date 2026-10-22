@@ -27,6 +27,7 @@ import shlex
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import yaml
@@ -60,6 +61,13 @@ POLL_S = 300
 MAX_FAILED_POLLS = 6
 SSH_TIMEOUT_S = 120
 COPY_TIMEOUT_S = 3600
+# One ssh stream VPS → here is capped, so the render comes down in pieces over several connections at once.
+# 1 GiB test, 2026-10-22, while the VPS rendered: 1 stream 2.4 MiB/s, 4 streams 15.9 MiB/s, 8 streams 12.2 MiB/s.
+PIECE_BYTES = 128 * 2**20
+DOWNLOAD_STREAMS = 4
+PIECE_ATTEMPTS = 3
+PIECE_TIMEOUT_S = 900
+RETRY_PAUSE_S = 5
 
 # --- snippets run with the VPS's python3, from the user's home (argv: see each call) --------------
 
@@ -155,6 +163,22 @@ shutil.rmtree(job, ignore_errors=True)
 print(json.dumps({"killed": killed, "released": holder == slug, "holder": holder}))
 """
 
+# Writes bytes [offset, offset + length) of a file to stdout: one piece of a download.
+RANGE = """
+import sys
+path, offset, length = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+out = sys.stdout.buffer
+with open(path, "rb") as src:
+    src.seek(offset)
+    while length > 0:
+        chunk = src.read(min(length, 1 << 20))
+        if not chunk:
+            break
+        out.write(chunk)
+        length -= len(chunk)
+out.flush()
+"""
+
 
 # --- pure helpers ---------------------------------------------------------------------------------
 
@@ -196,12 +220,16 @@ def parse_json_line(output: str) -> dict:
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=20"]
 
 
+def ssh_argv(*argv: str) -> list[str]:
+    """The ssh call running one command on the VPS, each argument quoted for its shell. -n gives it no
+    stdin, so a detached child cannot hold the connection open."""
+    return ["ssh", "-n", *SSH_OPTS, HOST, " ".join(shlex.quote(arg) for arg in argv)]
+
+
 def ssh(*argv: str, timeout: float = SSH_TIMEOUT_S) -> str:
-    """One command on the VPS, each argument quoted for its shell. -n gives it no stdin, so a detached
-    child cannot hold the connection open."""
-    command = " ".join(shlex.quote(arg) for arg in argv)
+    """One command on the VPS; returns what it printed."""
     try:
-        proc = subprocess.run(["ssh", "-n", *SSH_OPTS, HOST, command], capture_output=True, text=True,
+        proc = subprocess.run(ssh_argv(*argv), capture_output=True, text=True,
                               errors="replace", stdin=subprocess.DEVNULL, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         raise LaneError(f"ssh {HOST} {argv[0]} … gave no answer in {timeout:.0f}s") from exc
@@ -229,9 +257,58 @@ def copy_to(local: list[Path], remote_dir: str) -> None:
     scp([str(p) for p in local], f"{HOST}:{remote_dir}/")
 
 
-def copy_from(remote_path: str, local: Path) -> None:
+def copy_from(remote_path: str, local: Path, size: int | None = None) -> None:
+    """One file from the VPS; a file bigger than a piece (size given) comes down with `download`."""
     local.parent.mkdir(parents=True, exist_ok=True)
-    scp([f"{HOST}:{remote_path}"], str(local))
+    if size is not None and size > PIECE_BYTES:
+        download(remote_path, local, size)
+    else:
+        scp([f"{HOST}:{remote_path}"], str(local))
+
+
+def download(remote_path: str, local: Path, size: int) -> None:
+    """A big file in PIECE_BYTES pieces, DOWNLOAD_STREAMS at a time over their own ssh connections, each
+    written in place and tried PIECE_ATTEMPTS times; the first piece that fails every try cancels the ones
+    not started and raises. The caller checks the sha256 of the whole file."""
+    with open(local, "wb") as fh:
+        fh.truncate(size)
+
+    def attempt(offset: int) -> None:
+        for n in range(1, PIECE_ATTEMPTS + 1):
+            try:
+                fetch_piece(remote_path, local, offset, min(PIECE_BYTES, size - offset))
+                return
+            except LaneError:
+                if n == PIECE_ATTEMPTS:
+                    raise
+                time.sleep(RETRY_PAUSE_S * n)
+
+    pool = ThreadPoolExecutor(DOWNLOAD_STREAMS)
+    try:
+        for future in as_completed([pool.submit(attempt, offset) for offset in range(0, size, PIECE_BYTES)]):
+            future.result()
+    finally:
+        pool.shutdown(cancel_futures=True)
+
+
+def fetch_piece(remote_path: str, local: Path, offset: int, length: int) -> None:
+    """Bytes [offset, offset + length) of a VPS file, written at the same place in `local`: ssh writes
+    straight into the file through a descriptor positioned at `offset`."""
+    fd = os.open(local, os.O_WRONLY)
+    try:
+        os.lseek(fd, offset, os.SEEK_SET)
+        try:
+            proc = subprocess.run(ssh_argv("python3", "-c", RANGE, remote_path, str(offset), str(length)),
+                                  stdout=fd, stderr=subprocess.PIPE, text=True, errors="replace",
+                                  stdin=subprocess.DEVNULL, timeout=PIECE_TIMEOUT_S)
+        except subprocess.TimeoutExpired as exc:
+            raise LaneError(f"bytes {offset}+{length} of {remote_path} took over {PIECE_TIMEOUT_S}s") from exc
+        got = os.lseek(fd, 0, os.SEEK_CUR) - offset
+    finally:
+        os.close(fd)
+    if proc.returncode != 0 or got != length:
+        raise LaneError(f"bytes {offset}+{length} of {remote_path}: got {got} (exit {proc.returncode}) "
+                        f"{proc.stderr.strip()[-500:]}")
 
 
 def probe(state: dict) -> dict:
@@ -386,15 +463,17 @@ def fetch(stage: Path) -> None:
         missing = [name for name in (result["mp4"], "job.yaml", "logs.tar") if name not in files]
         if missing:
             raise LaneError(f"the box left no {missing} in {state['job_dir']}/work: {sorted(files)}")
-        say(f"downloading {result['mp4']} ({files[result['mp4']] / 1e9:.2f} GB) …")
+        size = files[result["mp4"]]
+        say(f"downloading {result['mp4']} ({size / 1e9:.2f} GB, {DOWNLOAD_STREAMS} streams) …")
         started = time.time()
-        copy_from(f"{state['job_dir']}/work/{result['mp4']}", dl / result["mp4"])
+        copy_from(f"{state['job_dir']}/work/{result['mp4']}", dl / result["mp4"], size)
+        took = time.time() - started
         if lane.sha256_file(dl / result["mp4"]) != result["sha256"]:
             raise LaneError(f"{result['mp4']}: sha256 differs from the box's result.json")
         for name in ("job.yaml", "logs.tar", "render.log", "box.log", "result.json"):
             if name in files:
                 copy_from(f"{state['job_dir']}/work/{name}", dl / name)
-        say(f"downloaded in {time.time() - started:.0f}s, sha256 ok")
+        say(f"downloaded in {took:.0f}s ({size / 1e6 / max(took, 1):.1f} MB/s), sha256 ok")
         state.update(downloaded=True, dl_dir=str(dl), result=result)
         lane.save_state(stage, state)
     if not state.get("cleaned"):
