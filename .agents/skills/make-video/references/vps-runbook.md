@@ -5,7 +5,8 @@ Runs only when the user names the VPS (user 2026-10-21); the default stays Colab
 and published on this machine, the VPS only runs the same box script (`kaggle_cpu_box.py`). **No Drive key on
 the VPS** — the rclone key has full-Drive scope and the VPS runs other services.
 
-Sources: setup and a 12-min benchmark on the VPS, 2026-10-21 (below); colab-runbook.md for the shared box.
+Sources: setup and a 12-min benchmark on the VPS, 2026-10-21; the first full episode, BT Chap 82, 2026-10-22
+(below); colab-runbook.md for the shared box.
 
 ## Machine
 
@@ -15,17 +16,20 @@ Sources: setup and a 12-min benchmark on the VPS, 2026-10-21 (below); colab-runb
 - User `ubuntu` has no password, so no `sudo`: everything lives in `~/vtbench`, set up without root:
   - `ff/bin/{ffmpeg,ffprobe}`: BtbN static build `ffmpeg-n8.1-latest-linuxarm64-gpl-8.1.tar.xz` (n8.1.3);
     Colab and this machine run Ubuntu's 6.1.1. Accepted on condition that the first full episode passes `finish`
-    QA (11/11, durations ±0.3 s, review 0 warnings) — user 2026-10-21. Until then it is unproven on a full episode.
+    QA (user 2026-10-21): BT Chap 82 did, 2026-10-22 (11/11, audio = expected to the 0.01 s, review 0 warnings).
   - `py/`: `python3 -m venv --without-pip py`, then `py/bin/python get-pip.py` (python3.12-venv is not installed).
     The box pip-installs the shipped videotool into it on every run.
   - Fonts: `fc-match Arial` = Liberation Sans, as on Colab.
 - The VPS's own `gdrive:` rclone remote had an expired token (2026-10-21). The lane does not need it.
 
-## Speed (measured 2026-10-21)
+## Speed
 
-Chương 991 of BT Chap 77 (724.6 s of video, 20 clips, overlay baked, 2500k cap, 2 scene workers): render
-21.6 min = **1.79 h per video-hour**, ~1.75× the Colab high-RAM VM. Bundle up: 221 MiB in 9 s. Estimates only
-until a full episode runs: ~4–5 h for 2 h 20 of narration, ~7.5–8.5 h for 4 h.
+- Chương 991 of BT Chap 77 (724.6 s of video, 20 clips, overlay baked, 2500k cap, 2 scene workers), 2026-10-21:
+  render 21.6 min = **1.79 h per video-hour**, ~1.75× the Colab high-RAM VM. Bundle up: 221 MiB in 9 s.
+- **BT Chap 82, the first full episode** (3 h 57 of narration, 303 clips, 2000k cap), 2026-10-21/22: box render
+  8.73 h = 2.21 h per video-hour, while another project's ffmpeg + headless-chromium job shared the two cores
+  for part of the night; clips ~8.5 h, mux ~15 min. Up: 921 MiB in 37 s. **Down: the 4.08 GB mp4 took 42 min**
+  (~1.6 MB/s); sfx, package, review and publish ~25 min more. Submit → published: 9.9 h.
 
 ## Rules
 
@@ -75,3 +79,5 @@ Every step re-runs from `$STAGE/.vps.json`: `watch`, `fetch`, `finish`, `publish
   backgrounds the whole `&&` list, which then holds the session until the box ends (the first manual test hung
   that way). The driver launches through a detached `Popen` and `ssh -n`.
 - The box unpacks into `/tmp/vt` without clearing it: the launch deletes it first (one job at a time).
+- The download is the slow leg: one `scp` stream VPS → here ran ~1.6 MB/s on 2026-10-22, against ~25 MB/s the
+  other way, so a 4 GB render needs ~40 min to come down (cause not measured).
